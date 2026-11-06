@@ -32,14 +32,21 @@ try {
     await page.waitForSelector('svg.chart');
     await page.waitForFunction(() => !document.querySelector('.banner')?.textContent);
     await page.reload(); // pick up the finished backfill
-    await page.waitForSelector('svg.chart .link-g[data-type="wake"]');
+    await page.waitForSelector('svg.chart .link-g[data-source="backfill"]');
+    await page.waitForFunction(() => !document.querySelector('.banner')?.textContent);
+    await page.waitForTimeout(600); // let SSE-triggered reloads settle
     await page.screenshot({ path: path.join(shots, '01-load.png'), fullPage: true });
 
-    await page.click('.bar-g[data-id="wkr00002"] .bar');
+    await page.click('.bar-g[data-id="a0000002"] .bar');
     assert.match(await page.textContent('#details'), /Alpha implementer/);
     await page.screenshot({ path: path.join(shots, '02-details.png'), fullPage: true });
 
-    await page.click('.bar-g[data-id="wkr00004"] .bar');
+    await page.click('.bar-g[data-id="a0000003"] .bar');
+    assert.match(await page.textContent('#details'), /State\s*killed/);
+    assert.equal(await page.locator('.bar-g[data-id="a0000003"] .bar-killed').count() > 0, true);
+    await page.screenshot({ path: path.join(shots, '02b-details-killed.png'), fullPage: true });
+
+    await page.click('.bar-g[data-id="a0000004"] .bar');
     assert.match(await page.textContent('#details'), /approximate end/);
     await page.screenshot({ path: path.join(shots, '03-details-approx.png'), fullPage: true });
 
