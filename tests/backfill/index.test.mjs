@@ -219,7 +219,7 @@ test('S7: the backing index is rebuilt at most once per pass however many segmen
 });
 
 test('R3: wake markers beyond the per-line cap are counted in status().droppedMarkers and the count survives a restart', async () => {
-  const flood = { type: 'user', timestamp: TS, uuid: 'flood', message: { content: [{ type: 'text', text: '[[cc:wake-callback]]Worker `aaaa1111` finished.\n'.repeat(700) }] } };
+  const flood = { type: 'user', timestamp: TS, uuid: 'flood', message: { content: Array.from({ length: 700 }, () => ({ type: 'text', text: '[[cc:wake-callback]]Worker `aaaa1111` finished.' })) } };
   const { s, byId, mkIndex } = setup({ cb1: [flood] });
   const idx = mkIndex();
   await idx.scan(byId);

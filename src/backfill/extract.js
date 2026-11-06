@@ -12,60 +12,60 @@ const WORKER_RE = /Worker `([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 // points whose worst case is a newline each (`> ` + char + `\n` = 3 chars), plus a ~64-char cut suffix and
 // a `\n>\n` separator; the decline and stale notes add ~150 + ~140. Total ≈ 5.4k, rounded up.
 const HEADER_MAX = 8192;
-// Ids a fleet can really produce stay far below MAX_WAKES_PER_LINE; the considered cap bounds the work
-// that non-id markers can cause. Markers beyond either cap are counted, not silently lost.
+// A fleet's coalesced deliveries stay far below MAX_WAKES_PER_LINE; the considered cap bounds the work
+// non-id blocks can cause. Deliveries beyond either cap are counted, not silently lost.
 const MAX_WAKES_PER_LINE = 500;
-const MAX_MARKERS_CONSIDERED = 2000;
-// A quoted human line is always prefixed `>`, so a marker or clause inside one never ends/supplies a header.
+const MAX_BLOCKS_CONSIDERED = 2000;
+// A quoted human line is always prefixed `>`, so a clause inside one never supplies a header.
 const BODY_CUT = `\n${WAKE_BODY}`;
 const CALL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
-/** Text of a content value: string, or array of strings / {text} blocks. Never retained past the call. */
+/** The text blocks of a content value (string, or array of strings / {text} blocks); non-text blocks give ''. */
+function blocksOf(content) {
+  if (typeof content === 'string') return [content];
+  if (!Array.isArray(content)) return [];
+  return content.map((b) => (typeof b === 'string' ? b : typeof b?.text === 'string' ? b.text : ''));
+}
+
+/** Text of a content value joined into one string. Never retained past the call. */
 function textOf(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map((b) => (typeof b === 'string' ? b : typeof b?.text === 'string' ? b.text : '')).join('\n');
+  return blocksOf(content).join('\n');
 }
 
 /**
- * One forward pass over a line. A marker's header runs to the body separator or the next marker
- * (at most HEADER_MAX chars). The worker is the first `Worker \`id\`` clause on a line of the header
- * that is not `>`-quoted (quoted lines are the human's words); the heartbeat flag is taken from the
- * words right after that clause. Every search is bounded, so a hostile line cannot make the scan
- * quadratic. Markers beyond the caps are reported as one `dropped` event.
+ * A delivery starts only at the very start of a content block: cc recognises a wake with
+ * `startsWith(marker)` (shared/wakeCallback.ts parseWakeCallback), every stub it builds begins with the
+ * marker, and coalesced deliveries are separate blocks of one line. A marker anywhere else (mid-line,
+ * inside a quoted human prompt, inside a folded body) is text, not a delivery, and neither starts one nor
+ * ends the enclosing header. A delivery's header runs to its `\n[[cc:wake-body]]` (or the block's end),
+ * at most HEADER_MAX chars; nothing after the body separator is read. The worker is the first
+ * `Worker \`id\`` clause on a header line that is not `>`-quoted (quoted lines are the human's words); the
+ * heartbeat flag comes from the words right after that clause. Blocks beyond the caps are reported as one
+ * `dropped` event.
  */
-function wakes(text, line, ts) {
+function wakes(blocks, line, ts) {
   const out = [];
-  let from = 0;
-  let n = 0;
   let considered = 0;
   let dropped = 0;
-  for (;;) {
-    const at = text.indexOf(WAKE, from);
-    if (at < 0) break;
-    const start = at + WAKE.length;
-    from = start;
-    if (n >= MAX_WAKES_PER_LINE || considered >= MAX_MARKERS_CONSIDERED) {
+  blocks.forEach((text, index) => {
+    if (!text.startsWith(WAKE)) return;
+    if (out.length >= MAX_WAKES_PER_LINE || considered >= MAX_BLOCKS_CONSIDERED) {
       dropped++;
-      continue;
+      return;
     }
     considered++;
-    const head = text.slice(start, start + HEADER_MAX);
-    let end = head.length;
-    for (const stop of [BODY_CUT, WAKE]) {
-      const i = head.indexOf(stop);
-      if (i >= 0 && i < end) end = i;
-    }
-    for (const l of head.slice(0, end).split('\n')) {
+    const head = text.slice(WAKE.length, WAKE.length + HEADER_MAX);
+    const cut = head.indexOf(BODY_CUT);
+    for (const l of (cut >= 0 ? head.slice(0, cut) : head).split('\n')) {
       if (l.startsWith('>')) continue;
       const m = WORKER_RE.exec(l);
       if (!m) continue;
-      const ev = { k: 'wake', key: `${line.uuid ?? ''}#${n++}`, ts, worker: m[1] };
+      const ev = { k: 'wake', key: `${line.uuid ?? ''}#${index}`, ts, worker: m[1] };
       if (l.startsWith(' did NOT finish', m.index + m[0].length)) ev.heartbeat = true;
       out.push(ev);
       break;
     }
-  }
+  });
   if (dropped) out.push({ k: 'dropped', count: dropped });
   return out;
 }
@@ -84,7 +84,7 @@ function resultOk(block) {
 /**
  * Pure per-line extractor. Emits only allowlisted fields (ids, tool, ts, heartbeat, ok);
  * no prompt text, wake body or tool_result text survives.
- * @returns {({k:'call',id,ts,tool,target,forward?}|{k:'result',id,ok}|{k:'wake',key,ts,worker,heartbeat?}|{k:'dropped',count})[]}
+ * @returns {({k:'call',id,ts,tool,target,forward?}|{k:'result',id,ok,ts}|{k:'wake',key,ts,worker,heartbeat?}|{k:'dropped',count})[]}
  */
 export function extractLine(line) {
   if (!line || typeof line !== 'object') return [];
@@ -102,13 +102,11 @@ export function extractLine(line) {
   } else if (line.type === 'user') {
     const content = line.message?.content;
     if (Array.isArray(content)) {
-      for (const b of content) if (b?.type === 'tool_result' && CALL_ID_RE.test(b.tool_use_id ?? '')) out.push({ k: 'result', id: b.tool_use_id, ok: resultOk(b) });
+      for (const b of content) if (b?.type === 'tool_result' && CALL_ID_RE.test(b.tool_use_id ?? '')) out.push({ k: 'result', id: b.tool_use_id, ok: resultOk(b), ts });
     }
-    const text = textOf(content);
-    if (text.includes(WAKE)) out.push(...wakes(text, line, ts));
+    out.push(...wakes(blocksOf(content), line, ts));
   } else if (line.type === 'attachment' && line.attachment?.type === 'queued_command') {
-    const text = textOf(line.attachment.prompt);
-    if (text.includes(WAKE)) out.push(...wakes(text, line, ts));
+    out.push(...wakes(blocksOf(line.attachment.prompt), line, ts));
   }
   return out;
 }
