@@ -51,8 +51,8 @@ test('a cross-project tree appears under each touched project with context ances
   assert.deepEqual(rowsOf(groups[1]), [['r', 0, true], ['lead', 1, true], ['wa', 2, false], ['wb', 1, false]]);
 });
 
-test('a root is never a group of its own (no undefined project group)', () => {
-  const { trees } = forestOf({ r: {}, k: { parent: 'r', project: 'p' } });
+test('a root is never a group of its own, even when the root record carries a project', () => {
+  const { trees } = forestOf({ r: { project: 'rootproj' }, k: { parent: 'r', project: 'p' } });
   const groups = groupByProject(trees);
   assert.deepEqual(groups.map((g) => g.project), ['p']);
 });
@@ -62,4 +62,21 @@ test('a parent loop terminates and is counted', () => {
   assert.equal(loops, 1);
   assert.equal(trees.length, 1);
   assert.equal(trees[0].rows.length, 2);
+});
+
+test('C2: an orphan lead in alpha with a child in beta yields only a beta group; the lead is context there', () => {
+  const { trees } = forestOf({ lead: { parent: 'gone', project: 'alpha' }, kid: { parent: 'lead', project: 'beta' } });
+  const groups = groupByProject(trees);
+  assert.deepEqual(groups.map((g) => g.project), ['beta']);
+  assert.deepEqual(groups[0].trees[0].rows.map((r) => [r.id, r.context]), [['lead', true], ['kid', false]]);
+});
+
+test('S7: a 20k-deep parent chain builds and groups without overflowing the stack', () => {
+  const defs = { n0: {} };
+  for (let i = 1; i < 20_000; i++) defs[`n${i}`] = { parent: `n${i - 1}`, project: 'p' };
+  const { trees } = forestOf(defs);
+  assert.equal(trees[0].rows.length, 20_000);
+  assert.equal(trees[0].rows.at(-1).depth, 19_999);
+  const groups = groupByProject(trees);
+  assert.equal(groups[0].trees[0].rows.length, 20_000);
 });

@@ -88,3 +88,16 @@ test('stage bands come from spawn and transitions labelled via; the last band en
   const live = bar(rec(), { own: own.slice(0, 2), live: true });
   assert.equal(live.stages.at(-1).to, null);
 });
+
+test('C1: cc writes the retire first and the kill interaction a few ms later → killed, end stays the retire ts', () => {
+  const retire = ev('retire', T0 + min(50), { reason: 'killed' });
+  const b = bar(rec(), { own: [retire], kills: [T0 + min(50) + 7] });
+  assert.deepEqual([b.endKind, b.end, b.endReason], ['killed', T0 + min(50), 'killed']);
+});
+
+test('C1: a kill long after a retire (session already retired) stays retired; a kill before the last resume never counts', () => {
+  const retire = ev('retire', T0 + min(50), { reason: 'subprocess exited' });
+  assert.equal(bar(rec(), { own: [retire], kills: [T0 + min(50) + 60_000] }).endKind, 'retired');
+  const resumed = bar(rec(), { own: [retire, ev('resume', T0 + min(60)), ev('retire', T0 + min(70), { reason: 'x' })], kills: [T0 + min(50) + 5] });
+  assert.equal(resumed.endKind, 'retired');
+});

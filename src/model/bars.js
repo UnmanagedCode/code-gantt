@@ -8,9 +8,13 @@
  *
  * End precedence: killed/retired (see below) → live (end null; the frontend extends it to now)
  * → approx (latest of last turn end, ledger mention, link endpoint, segment start).
- * A kill counts when it follows the last resume; a retire that follows such a kill keeps `killed`
- * with the retire ts as end. Any other retire after the last resume is `retired`.
+ * A kill counts when it follows the last resume. With a retire, it must also land no later than
+ * KILL_AFTER_RETIRE_MS after it (either order of the two events); `end` stays the retire ts.
+ * Any other retire after the last resume is `retired`.
  */
+/** A kill interaction this soon after a retire still belongs to that retire. */
+export const KILL_AFTER_RETIRE_MS = 5000;
+
 export function buildBar(rec, ctx) {
   const segments = rec.segments ?? [];
   const start = Date.parse(segments[0]?.at) || 0;
@@ -22,13 +26,17 @@ export function buildBar(rec, ctx) {
   let retireIdx = -1;
   own.forEach((e, i) => { if (e.kind === 'retire' && i > lastResumeIdx) retireIdx = i; });
   const retire = retireIdx >= 0 ? own[retireIdx] : null;
-  const kill = ctx.kills.filter((t) => t > lastResumeTs).sort((a, b) => a - b).at(-1) ?? null;
+  const afterResume = ctx.kills.filter((t) => t > lastResumeTs);
+  // cc may write the retire first and the kill interaction a few ms later, or the reverse (transcript order).
+  const kill = retire
+    ? afterResume.filter((t) => t <= retire.ts + KILL_AFTER_RETIRE_MS).sort((a, b) => a - b).at(-1) ?? null
+    : afterResume.sort((a, b) => a - b).at(-1) ?? null;
 
   let endKind;
   let end;
   let endReason;
   let endingRetire = null;
-  if (kill != null && (!retire || kill <= retire.ts)) {
+  if (kill != null) {
     endKind = 'killed';
     end = retire ? retire.ts : kill;
     if (retire) {

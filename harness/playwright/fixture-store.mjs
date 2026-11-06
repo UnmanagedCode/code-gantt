@@ -32,8 +32,9 @@ export function buildFixture(now = Date.now()) {
     ev(36, { kind: 'spawn', sessionId: 'wkr00004', playbook: 'classic', stage: 'plan' }),
     ev(34, { kind: 'retire', sessionId: 'wkr00002', reason: 'stage complete' }),
     ev(30, { kind: 'retire', sessionId: 'wkr00001', reason: 'subprocess exited' }),
-    ev(20, { kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00003', tool: 'kill_instance' }),
+    // cc writes the retire first, then the kill interaction a few ms later
     ev(19, { kind: 'retire', sessionId: 'wkr00003', reason: 'killed' }),
+    { ts: iso(t(19) + 8), kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00003', tool: 'kill_instance' },
     ev(15, { kind: 'wake', conductorSessionId: 'cond0001', sessionId: 'wkr00005' }),
     ev(14, { kind: 'wake', conductorSessionId: 'cond0001', sessionId: 'wkr00005', heartbeat: true }),
     ev(13, { kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00005', tool: 'set_mode' }),
