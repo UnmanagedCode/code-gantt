@@ -256,3 +256,35 @@ test('G2: an unresolvable id on a pre-cutoff call still counts (it is real data 
     backfill: { calls: [call({ target: 'ghost0000', ts: cut - min(10), rts: cut - min(10) + 1000 })], wakes: [] } });
   assert.equal(r.unresolved, 1);
 });
+
+test('H1: wake pairing is bounded by the ledger twins near the cutoff: two ledger wakes may take two genuine pre-cutoff wakes, never more', () => {
+  const cut = T0 + min(50);
+  const ledger = [cut, cut + 20_000].map((ts, line) => ({ line, ts, kind: 'wake', sessionId: 'wrk1', conductorSessionId: 'cond' }));
+  const r = run({ cutoffTs: cut, ledger, backfill: { calls: [], wakes: [5000, 10_000, 15_000].map((d, i) => ({ key: `k#${i}`, ts: cut - d, worker: 'wrk1', owner: 'cond' })) } });
+  const bf = r.links.filter((l) => l.type === 'wake' && l.source === 'backfill');
+  assert.equal(bf.length, 1, 'three genuine-looking wakes, two ledger twins: two are taken, one survives');
+  assert.equal(bf[0].ts, cut - 15_000, 'the nearest pair first: the farthest is the one left');
+  assert.equal(r.links.filter((l) => l.type === 'wake' && l.source === 'ledger').length, 2);
+});
+
+test('H2: a call without a result time that is paired with its ledger twin counts its unresolvable id once, not twice', () => {
+  const cut = T0 + min(50);
+  const { rts, ...parked } = call({ target: 'ghost0000', ts: cut - 2000 });
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut, sessionId: 'ghost0000' })], backfill: { calls: [parked], wakes: [] } });
+  assert.equal(r.unresolved, 1);
+});
+
+test('H2: an unresolvable rts-less call with no ledger twin still counts (it is real data that cannot be placed)', () => {
+  const cut = T0 + min(50);
+  const { rts, ...parked } = call({ target: 'ghost0001', ts: cut - 2000 });
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut, sessionId: 'ghost0000' })], backfill: { calls: [parked], wakes: [] } });
+  assert.equal(r.unresolved, 2);
+});
+
+test('H2: an unresolvable wake paired with its ledger wake counts once', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut,
+    ledger: [{ line: 1, ts: cut, kind: 'wake', sessionId: 'ghost0000', conductorSessionId: 'cond' }],
+    backfill: { calls: [], wakes: [{ key: 'a#0', ts: cut - 2000, worker: 'ghost0000', owner: 'cond' }] } });
+  assert.equal(r.unresolved, 1);
+});

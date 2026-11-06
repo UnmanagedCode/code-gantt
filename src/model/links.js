@@ -29,11 +29,11 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   }
   let unresolved = 0;
   const unknownTools = new Map(); // tool names come from files: never a plain object
-  // `count: false` resolves without touching the diagnostic (events the cutoff will drop anyway: their
-  // ledger counterpart already counts the same id).
+  // `count` (a boolean or a function) says whether a failed resolution is added to the diagnostic. It is
+  // false for events whose ledger counterpart counts the same id already.
   const resolve = (raw, scopeId, count = true) => {
     const id = resolveId(raw, { byId, byBacking, scope: scopeId ? treeOf.get(scopeId) ?? null : null });
-    if (!id && count) unresolved++;
+    if (!id && (typeof count === 'function' ? count() : count)) unresolved++;
     return id;
   };
   const links = [];
@@ -94,13 +94,18 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   // send_prompt); its `rts` is the tool_result line, written after the handler like the ledger entry. All
   // cutoff and twin decisions use `et` = rts when known, so they do not depend on how long the handler took.
   const afterCutoff = (et) => cutoffTs != null && et >= cutoffTs;
+  // A pairable backfill event just before the cutoff whose raw id a ledger entry just after it also names is
+  // that entry's twin: the ledger entry counts the id, so the backfill event must not count it again.
+  const hasLedgerTwin = (kind, rawId, et) => cutoffTs != null
+    && ledger.some((ev) => ev.kind === kind && ev.sessionId === rawId && ev.ts >= cutoffTs && Math.abs(et - ev.ts) <= BOUNDARY_WINDOW_MS);
   for (const c of backfill.calls) {
     if (!c.ok) continue;
     const et = c.rts ?? c.ts;
     // cc appends the ledger entry before the result line is written, so a call whose result is known and
     // landed at or after the cutoff always has its ledger entry: drop it before resolving anything.
     if (c.rts !== undefined && afterCutoff(et)) continue;
-    const count = !afterCutoff(et); // only a call without a result time can still reach here after the cutoff
+    // only a call without a result time can still reach here after the cutoff
+    const count = () => !afterCutoff(et) && !(c.rts === undefined && hasLedgerTwin('interaction', c.target, et));
     const to = resolve(c.target, c.owner, count);
     if (!to) continue;
     let from = resolve(c.owner, undefined, count);
@@ -116,7 +121,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool, et, pairable: c.rts === undefined });
   }
   for (const w of backfill.wakes) {
-    const count = !afterCutoff(w.ts);
+    const count = () => !afterCutoff(w.ts) && !hasLedgerTwin('wake', w.worker, w.ts);
     const worker = resolve(w.worker, w.owner, count);
     const owner = resolve(w.owner, undefined, count);
     if (!worker || !owner) continue;
