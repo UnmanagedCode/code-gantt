@@ -154,3 +154,66 @@ test('the cache file text contains no prompt sentinel', async () => {
   assert.equal(text.includes(S), false);
   s.cleanup();
 });
+
+test('C4: a scan requested mid-pass with a newer sessions snapshot is followed up, picking up the new owner', async () => {
+  const sessions = {
+    cond: { ...sess({ id: 'cond' }), segments: [{ id: 'cb1', reason: 'initial', at: TS }] },
+    aaaa1111: sess({ id: 'aaaa1111', parent: 'cond', project: 'p', conducted: true }),
+    lead: { ...sess({ id: 'lead', parent: 'cond', project: 'p', conducted: true }), segments: [{ id: 'lb1', reason: 'initial', at: TS }] },
+    kid: sess({ id: 'kid', parent: 'lead', project: 'p', conducted: true }),
+  };
+  const s = makeStore({ sessions, transcripts: { cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')], lb1: [call('toolu_n', 'kid'), result('toolu_n')] } });
+  const all = new Map(Object.entries(sessions).map(([id, r]) => [id, { id, ...r }]));
+  const early = new Map([...all].filter(([id]) => id !== 'kid')); // `lead` is not an owner yet
+  const dd = createDataDir(s.dataDir);
+  dd.ensure();
+  const idx = new BackfillIndex({ transcriptRoot: s.transcriptRoot, dataDir: dd });
+  let fired = false;
+  const first = idx.scan(early, { onProgress: () => { if (!fired) { fired = true; idx.scan(all); idx.scan(all); } } });
+  await first;
+  assert.deepEqual(idx.collect().calls.map((c) => c.id).sort(), ['toolu_a', 'toolu_n']);
+  assert.equal(idx.status().state, 'ready');
+  s.cleanup();
+});
+
+test('S2: a malformed cache is rejected and rebuilt, not trusted', async () => {
+  const bad = [
+    { version: 1, files: { x: { size: 'big', offset: 0, owner: 'cond', pending: {}, calls: [], wakes: [] } } },
+    { version: 1, files: { x: { size: 1, offset: 1, owner: 'cond', pending: {}, calls: 'nope', wakes: [] } } },
+    { version: 1, files: { x: { size: 1, offset: 1, owner: 'cond', pending: [], calls: [], wakes: [] } } },
+    { version: 1, files: { x: { size: 1, offset: 1, owner: 'cond', pending: {}, calls: [{ id: 1 }], wakes: [] } } },
+    { version: 1, files: [] },
+    { version: 1, files: { x: null } },
+  ];
+  for (const doc of bad) {
+    const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
+    dd.writeJsonAtomic('backfill-v1.json', doc);
+    const idx = mkIndex();
+    await idx.scan(byId);
+    assert.deepEqual(idx.collect().calls.map((c) => c.id), ['toolu_a'], JSON.stringify(doc));
+    s.cleanup();
+  }
+});
+
+test('S4: a crafted wake line without a body marker leaves no sentinel in the cache', async () => {
+  const crafted = { type: 'user', timestamp: TS, uuid: 'x', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`${S}\` finished` }] } };
+  const { s, byId, dd, mkIndex } = setup({ cb1: [crafted, call('toolu_a', 'aaaa1111'), result('toolu_a')] });
+  await mkIndex().scan(byId);
+  assert.equal(fs.readFileSync(path.join(dd.dir, 'backfill-v1.json'), 'utf8').includes(S), false);
+  s.cleanup();
+});
+
+test('S7: the backing index is rebuilt at most once per pass however many segments are missing', async () => {
+  const many = { cond: { ...sess({ id: 'cond' }), segments: Array.from({ length: 6 }, (_, i) => ({ id: `ghost${i}`, reason: i ? 'renew' : 'initial', at: TS })) },
+    aaaa1111: sess({ id: 'aaaa1111', parent: 'cond', project: 'p', conducted: true }) };
+  const s = makeStore({ sessions: many });
+  const byId = new Map(Object.entries(many).map(([id, r]) => [id, { id, ...r }]));
+  const dd = createDataDir(s.dataDir);
+  dd.ensure();
+  let builds = 0;
+  const idx = new BackfillIndex({ transcriptRoot: s.transcriptRoot, dataDir: dd, buildIndex: async (root) => { builds++; const { buildBackingIndex } = await import('../../src/backfill/locate.js'); return buildBackingIndex(root); } });
+  await idx.scan(byId);
+  assert.equal(idx.status().missing, 6);
+  assert.ok(builds >= 1 && builds <= 2, `built ${builds} times`);
+  s.cleanup();
+});

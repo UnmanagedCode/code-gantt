@@ -8,21 +8,47 @@ const PERSIST_EVERY = 10;
 const PREFILTER = ['mcp__code-conductor__', '[[cc:wake-callback]]', '"tool_result"'];
 const prefilter = (line) => PREFILTER.some((p) => line.includes(p));
 
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const num = (v) => Number.isFinite(v) && v >= 0;
+const str = (v) => typeof v === 'string';
+
+function validCall(c) {
+  return isObj(c) && str(c.id) && Number.isFinite(c.ts) && str(c.tool) && str(c.target) && typeof c.ok === 'boolean' && (c.forward === undefined || str(c.forward));
+}
+function validPending(c) {
+  return isObj(c) && Number.isFinite(c.ts) && str(c.tool) && str(c.target) && (c.forward === undefined || str(c.forward));
+}
+function validWake(w) {
+  return isObj(w) && str(w.key) && Number.isFinite(w.ts) && str(w.worker) && (w.heartbeat === undefined || typeof w.heartbeat === 'boolean');
+}
+
+/** The cache is untrusted input: any shape mismatch rejects it whole (a rebuild is cheap). */
+export function validCache(doc) {
+  if (!isObj(doc) || doc.version !== VERSION || !isObj(doc.files)) return false;
+  return Object.values(doc.files).every((f) => isObj(f) && num(f.size) && num(f.offset) && str(f.owner)
+    && isObj(f.pending) && Object.values(f.pending).every(validPending)
+    && Array.isArray(f.calls) && f.calls.every(validCall)
+    && Array.isArray(f.wakes) && f.wakes.every(validWake));
+}
+
 /**
  * Incremental backfill of conductor→worker interactions from conductor transcripts.
  * Only owners (sessions that are some session's parent) are scanned. Raw ids are cached;
  * resolution against sessions.json happens at build time. Prompt text is never retained.
  */
 export class BackfillIndex {
-  constructor({ transcriptRoot, dataDir }) {
+  constructor({ transcriptRoot, dataDir, buildIndex = buildBackingIndex }) {
+    this.buildIndex = buildIndex;
     this.transcriptRoot = transcriptRoot;
     this.dataDir = dataDir;
     this.files = {};
     this.progress = { state: 'scanning', filesDone: 0, filesTotal: 0, missing: 0, corrupt: 0 };
     this.running = null;
+    this.rerun = false;
+    this.latest = null;
     const cached = dataDir.readJson(CACHE);
-    if (cached?.version === VERSION && cached.files && typeof cached.files === 'object') this.files = cached.files;
-    else if (cached) console.warn('[code-gantt] backfill cache unreadable or wrong version; rebuilding');
+    if (validCache(cached)) this.files = cached.files;
+    else if (cached) console.warn('[code-gantt] backfill cache invalid or wrong version; rebuilding');
   }
 
   status() {
@@ -33,9 +59,23 @@ export class BackfillIndex {
     this.dataDir.writeJsonAtomic(CACHE, { version: VERSION, files: this.files });
   }
 
-  /** One pass over every owner transcript. Overlapping calls share the running pass. */
+  /**
+   * One pass over every owner transcript. A request made while a pass is running is not dropped:
+   * the latest `byId` is remembered and one follow-up pass runs, so repeated requests coalesce.
+   */
   scan(byId, { onProgress } = {}) {
-    if (!this.running) this.running = this.#scan(byId, onProgress).finally(() => { this.running = null; });
+    this.latest = { byId, onProgress };
+    if (this.running) {
+      this.rerun = true;
+      return this.running;
+    }
+    this.running = (async () => {
+      do {
+        this.rerun = false;
+        const { byId: b, onProgress: p } = this.latest;
+        await this.#scan(b, p);
+      } while (this.rerun);
+    })().finally(() => { this.running = null; });
     return this.running;
   }
 
@@ -44,14 +84,16 @@ export class BackfillIndex {
     for (const rec of byId.values()) if (rec.parent && byId.has(rec.parent)) owners.add(rec.parent);
 
     let backing = null;
+    let refreshed = false; // the backing index is rebuilt at most once per pass
     let missing = 0;
     const targets = [];
     for (const owner of owners) {
       for (const seg of byId.get(owner).segments ?? []) {
         if (!seg?.id || seg.dropped) continue;
-        let p = (backing ??= await buildBackingIndex(this.transcriptRoot)).get(seg.id);
-        if (!p) {
-          backing = await buildBackingIndex(this.transcriptRoot); // refresh on miss
+        let p = (backing ??= await this.buildIndex(this.transcriptRoot)).get(seg.id);
+        if (!p && !refreshed) {
+          refreshed = true;
+          backing = await this.buildIndex(this.transcriptRoot); // refresh on first miss
           p = backing.get(seg.id);
         }
         if (p) targets.push({ path: p, owner });
@@ -84,6 +126,7 @@ export class BackfillIndex {
     if (r.reset) Object.assign(st, { pending: {}, calls: [], wakes: [] });
     this.progress.corrupt += r.corrupt.length;
     if (r.corrupt.length) console.warn(`[code-gantt] ${r.corrupt.length} corrupt line(s) in ${path} at byte ${r.corrupt.map((c) => c.byteOffset).join(',')}`);
+    let wakeKeys = null; // built lazily, only when a wake arrives
     for (const { value } of r.lines) {
       for (const ev of extractLine(value)) {
         if (ev.k === 'call') {
@@ -94,7 +137,10 @@ export class BackfillIndex {
           if (!c) continue;
           delete st.pending[ev.id];
           st.calls.push({ ...c, ok: ev.ok });
-        } else if (!st.wakes.some((w) => w.key === ev.key)) {
+        } else {
+          wakeKeys ??= new Set(st.wakes.map((w) => w.key));
+          if (wakeKeys.has(ev.key)) continue;
+          wakeKeys.add(ev.key);
           const { k, ...rest } = ev;
           st.wakes.push(rest);
         }

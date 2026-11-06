@@ -88,3 +88,35 @@ test('no extracted event contains the prompt sentinel', () => {
   assert.ok(all.length >= 3);
   assert.equal(JSON.stringify(all).includes(S), false);
 });
+
+test('S3: a line with 20k wake markers and no body marker is scanned in linear time and capped', () => {
+  const text = '[[cc:wake-callback]]Worker `abcd1234` finished. '.repeat(20_000);
+  const t0 = performance.now();
+  const out = extractLine(userText(text));
+  assert.ok(performance.now() - t0 < 1000, 'scan must stay linear-ish');
+  assert.ok(out.length > 0 && out.length <= 100, `capped, got ${out.length}`);
+});
+
+test('S3: markers at different distances scale linearly (10x input is not ~100x slower)', () => {
+  const run = (n) => { const t = performance.now(); extractLine(userText('[[cc:wake-callback]]x'.repeat(n))); return performance.now() - t; };
+  run(1000); // warm up
+  const small = Math.max(run(5000), 0.5);
+  const big = run(50_000);
+  assert.ok(big < small * 40 + 50, `small ${small}ms big ${big}ms`);
+});
+
+test('S4: a header with no body marker captures only id-shaped workers, never arbitrary backticked text', () => {
+  const line = `[[cc:wake-callback]]Worker \`${S}\` finished.`;
+  assert.deepEqual(extractLine(userText(line)), []);
+  assert.deepEqual(extractLine(userText('[[cc:wake-callback]]Worker `not-an-id` finished.')), []);
+  assert.equal(extractLine(userText('[[cc:wake-callback]]Worker `abcd1234-0000` finished.'))[0].worker, 'abcd1234-0000');
+  assert.equal(extractLine(userText('[[cc:wake-callback]]Worker `6fbc1834-85f4-429e-a45a-c197b0f6e264` finished.'))[0].worker, '6fbc1834-85f4-429e-a45a-c197b0f6e264');
+});
+
+test('S4: the header ends at the first newline, so a worker named on a later line is not taken', () => {
+  assert.deepEqual(extractLine(userText('[[cc:wake-callback]]nothing here\nWorker `abcd1234` is mentioned below')), []);
+});
+
+test('S2: a tool_use id outside the plain id charset is ignored', () => {
+  assert.deepEqual(extractLine(toolUse('mcp__code-conductor__send_prompt', { sessionId: 'w1' }, '__proto__')), []);
+});
