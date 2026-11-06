@@ -11,27 +11,27 @@ const call = (id, target) => ({
   message: { content: [{ type: 'tool_use', id, name: 'mcp__code-conductor__send_prompt', input: { sessionId: target, text: S } }] },
 });
 const result = (id) => ({ type: 'user', timestamp: iso(T0 + min(15)), uuid: 'r' + id, message: { content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: JSON.stringify({ ok: true, note: S }) }] }] } });
-const wake = { type: 'user', timestamp: iso(T0 + min(16)), uuid: 'wk', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`wrk1aaaa\` finished.\n[[cc:wake-body]]${S}` }] } };
+const wake = { type: 'user', timestamp: iso(T0 + min(16)), uuid: 'wk', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`aaaa1111\` finished.\n[[cc:wake-body]]${S}` }] } };
 
 async function fixture(extra = {}) {
   const s = makeStore({
     sessions: {
-      cond0000: { ...sess({ id: 'cond0000', backing: 'cb-cond' }), title: 'Conductor' },
-      wrk1aaaa: sess({ id: 'wrk1aaaa', parent: 'cond0000', project: 'p', worktree: 'wt', conducted: true, at: iso(T0 + min(10)), backing: 'bk-w1' }),
-      wrk2bbbb: sess({ id: 'wrk2bbbb', parent: 'cond0000', project: 'q', conducted: true, at: iso(T0 + min(3000)) }),
+      cccc0000: { ...sess({ id: 'cccc0000', backing: 'cb-cond' }), title: 'Conductor' },
+      aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', worktree: 'wt', conducted: true, at: iso(T0 + min(10)), backing: 'bk-w1' }),
+      bbbb2222: sess({ id: 'bbbb2222', parent: 'cccc0000', project: 'q', conducted: true, at: iso(T0 + min(3000)) }),
     },
     ledger: [
-      { ts: iso(T0 + min(10)), kind: 'spawn', sessionId: 'wrk1aaaa', playbook: 'classic', stage: 'plan', text: S },
-      { ts: iso(T0 + min(60)), kind: 'retire', sessionId: 'wrk1aaaa', reason: 'subprocess exited' },
-      { ts: iso(T0 + min(70)), kind: 'hologram', sessionId: 'wrk1aaaa' },
-      { ts: iso(T0 + min(80)), kind: 'interaction', conductorSessionId: 'cond0000', sessionId: 'wrk1aaaa', tool: 'frobnicate' },
+      { ts: iso(T0 + min(10)), kind: 'spawn', sessionId: 'aaaa1111', playbook: 'classic', stage: 'plan', text: S },
+      { ts: iso(T0 + min(60)), kind: 'retire', sessionId: 'aaaa1111', reason: 'subprocess exited' },
+      { ts: iso(T0 + min(70)), kind: 'hologram', sessionId: 'aaaa1111' },
+      { ts: iso(T0 + min(80)), kind: 'interaction', conductorSessionId: 'cccc0000', sessionId: 'aaaa1111', tool: 'frobnicate' },
     ],
     costs: [
-      { ts: T0 + min(30), duration_ms: min(10), sessionId: 'wrk1aaaa' },
+      { ts: T0 + min(30), duration_ms: min(10), sessionId: 'aaaa1111' },
       { ts: T0 + min(130), duration_ms: min(20), sessionId: 'bk-w1' },
-      { ts: T0 + min(300), duration_ms: min(5), sessionId: 'wrk1aaaa' },
+      { ts: T0 + min(300), duration_ms: min(5), sessionId: 'aaaa1111' },
     ],
-    transcripts: { 'cb-cond': [call('toolu_1', 'wrk1aaaa'), result('toolu_1'), wake] },
+    transcripts: { 'cb-cond': [call('toolu_1', 'aaaa1111'), result('toolu_1'), wake] },
     ...extra,
   });
   const state = createState(s.config);
@@ -44,11 +44,11 @@ const win = { from: T0, to: T0 + min(120), now: T0 + min(5000) };
 test('the window keeps overlapping sessions and clips turns and links to it', async () => {
   const { s, state } = await fixture();
   const p = buildPayload(state, win);
-  assert.deepEqual(Object.keys(p.sessions).sort(), ['cond0000', 'wrk1aaaa']);
-  assert.deepEqual(p.sessions.wrk1aaaa.turns, [[T0 + min(20), T0 + min(30)], [T0 + min(110), T0 + min(120)]]);
+  assert.deepEqual(Object.keys(p.sessions).sort(), ['aaaa1111', 'cccc0000']);
+  assert.deepEqual(p.sessions.aaaa1111.turns, [[T0 + min(20), T0 + min(30)], [T0 + min(110), T0 + min(120)]]);
   assert.ok(p.links.every((l) => l.ts >= win.from && l.ts <= win.to));
   assert.deepEqual(p.projects.map((g) => g.project), ['p']);
-  assert.deepEqual(p.projects[0].trees[0].rows.map((r) => [r.id, r.context]), [['cond0000', true], ['wrk1aaaa', false]]);
+  assert.deepEqual(p.projects[0].trees[0].rows.map((r) => [r.id, r.context]), [['cccc0000', true], ['aaaa1111', false]]);
   s.cleanup();
 });
 
@@ -56,9 +56,9 @@ test('linkTypes equals LINK_TYPES and the payload carries bars, links and diagno
   const { s, state } = await fixture();
   const p = buildPayload(state, win);
   assert.deepEqual(p.linkTypes, LINK_TYPES);
-  assert.equal(p.sessions.wrk1aaaa.endKind, 'retired');
-  assert.equal(p.sessions.wrk1aaaa.playbook, 'classic');
-  assert.equal(p.sessions.cond0000.title, 'Conductor');
+  assert.equal(p.sessions.aaaa1111.endKind, 'retired');
+  assert.equal(p.sessions.aaaa1111.playbook, 'classic');
+  assert.equal(p.sessions.cccc0000.title, 'Conductor');
   const types = new Set(p.links.map((l) => l.type));
   assert.ok(types.has('spawn') && types.has('send_prompt') && types.has('wake') && types.has('other'));
   const d = p.diagnostics;
@@ -74,11 +74,11 @@ test('linkTypes equals LINK_TYPES and the payload carries bars, links and diagno
 
 test('a live session is open-ended only when liveness is available', async () => {
   const { s, state } = await fixture({ ledger: [] });
-  assert.equal(buildPayload(state, win).sessions.wrk1aaaa.endKind, 'approx');
-  state.liveSet = new Set(['wrk1aaaa']);
+  assert.equal(buildPayload(state, win).sessions.aaaa1111.endKind, 'approx');
+  state.liveSet = new Set(['aaaa1111']);
   const p = buildPayload(state, win);
-  assert.equal(p.sessions.wrk1aaaa.endKind, 'live');
-  assert.equal(p.sessions.wrk1aaaa.end, null);
+  assert.equal(p.sessions.aaaa1111.endKind, 'live');
+  assert.equal(p.sessions.aaaa1111.end, null);
   assert.equal(p.diagnostics.liveness, 'ok');
   s.cleanup();
 });

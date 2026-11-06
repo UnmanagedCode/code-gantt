@@ -12,18 +12,18 @@ export function buildFixture(now = Date.now()) {
   const t = (hoursAgo) => now - hoursAgo * H;
   const seg = (id, reason, at) => ({ id, reason, at: iso(at) });
   const sessions = {
-    cond0001: { ...sess({ id: 'cond0001', title: 'Conductor', backing: 'cb-1', segments: [seg('cb-1', 'initial', t(70)), seg('cb-2', 'renew', t(30))] }), current: 'cb-2' },
-    lead0001: sess({ id: 'lead0001', title: 'Alpha lead', parent: 'cond0001', project: 'alpha', conducted: true, at: iso(t(66)), backing: 'bk-lead' }),
-    wkr00001: sess({ id: 'wkr00001', title: 'Beta worker (under lead)', parent: 'lead0001', project: 'beta', worktree: 'feat-b', conducted: true, at: iso(t(60)), backing: 'bk-1' }),
-    wkr00002: { ...sess({ id: 'wkr00002', title: 'Alpha implementer', parent: 'cond0001', project: 'alpha', worktree: 'feat-a', conducted: true, turnEndSeq: 14, backing: 'bk-2',
+    c0000001: { ...sess({ id: 'c0000001', title: 'Conductor', backing: 'cb-1', segments: [seg('cb-1', 'initial', t(70)), seg('cb-2', 'renew', t(30))] }), current: 'cb-2' },
+    1ead0001: sess({ id: '1ead0001', title: 'Alpha lead', parent: 'c0000001', project: 'alpha', conducted: true, at: iso(t(66)), backing: 'bk-lead' }),
+    wkr00001: sess({ id: 'wkr00001', title: 'Beta worker (under lead)', parent: '1ead0001', project: 'beta', worktree: 'feat-b', conducted: true, at: iso(t(60)), backing: 'bk-1' }),
+    wkr00002: { ...sess({ id: 'wkr00002', title: 'Alpha implementer', parent: 'c0000001', project: 'alpha', worktree: 'feat-a', conducted: true, turnEndSeq: 14, backing: 'bk-2',
       segments: [seg('bk-2', 'initial', t(64)), seg('bk-2b', 'renew', t(44)), seg('bk-2c', 'prune', t(40))] }), backend: { backend: 'claude', model: 'claude-opus-5-5' } },
-    wkr00003: sess({ id: 'wkr00003', title: 'Alpha killed worker', parent: 'cond0001', project: 'alpha', conducted: true, at: iso(t(50)), backing: 'bk-3' }),
-    wkr00004: sess({ id: 'wkr00004', title: 'Beta approx-end worker', parent: 'cond0001', project: 'beta', conducted: true, at: iso(t(36)), backing: 'bk-4' }),
-    wkr00005: sess({ id: 'wkr00005', title: 'Beta recent worker', parent: 'cond0001', project: 'beta', conducted: true, at: iso(t(12)), backing: 'bk-5' }),
+    wkr00003: sess({ id: 'wkr00003', title: 'Alpha killed worker', parent: 'c0000001', project: 'alpha', conducted: true, at: iso(t(50)), backing: 'bk-3' }),
+    wkr00004: sess({ id: 'wkr00004', title: 'Beta approx-end worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(36)), backing: 'bk-4' }),
+    wkr00005: sess({ id: 'wkr00005', title: 'Beta recent worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(12)), backing: 'bk-5' }),
   };
   const ev = (h, o) => ({ ts: iso(t(h)), ...o });
   const ledger = [
-    ev(66, { kind: 'spawn', sessionId: 'lead0001', playbook: 'split', stage: 'plan' }),
+    ev(66, { kind: 'spawn', sessionId: '1ead0001', playbook: 'split', stage: 'plan' }),
     ev(64, { kind: 'spawn', sessionId: 'wkr00002', playbook: 'classic', stage: 'plan' }),
     ev(60, { kind: 'spawn', sessionId: 'wkr00001', playbook: 'classic', stage: 'implement' }),
     ev(58, { kind: 'transition', sessionId: 'wkr00002', from: 'plan', to: 'implement', via: 'approve_plan' }),
@@ -34,16 +34,16 @@ export function buildFixture(now = Date.now()) {
     ev(30, { kind: 'retire', sessionId: 'wkr00001', reason: 'subprocess exited' }),
     // cc writes the retire first, then the kill interaction a few ms later
     ev(19, { kind: 'retire', sessionId: 'wkr00003', reason: 'killed' }),
-    { ts: iso(t(19) + 8), kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00003', tool: 'kill_instance' },
-    ev(15, { kind: 'wake', conductorSessionId: 'cond0001', sessionId: 'wkr00005' }),
-    ev(14, { kind: 'wake', conductorSessionId: 'cond0001', sessionId: 'wkr00005', heartbeat: true }),
-    ev(13, { kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00005', tool: 'set_mode' }),
-    ev(11, { kind: 'interaction', conductorSessionId: 'cond0001', sessionId: 'wkr00005', tool: 'frobnicate' }),
+    { ts: iso(t(19) + 8), kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'wkr00003', tool: 'kill_instance' },
+    ev(15, { kind: 'wake', conductorSessionId: 'c0000001', sessionId: 'wkr00005' }),
+    ev(14, { kind: 'wake', conductorSessionId: 'c0000001', sessionId: 'wkr00005', heartbeat: true }),
+    ev(13, { kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'wkr00005', tool: 'set_mode' }),
+    ev(11, { kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'wkr00005', tool: 'frobnicate' }),
     ev(9, { kind: 'refusal', tool: 'spawn_instance' }),
   ];
   const costs = [];
   const turn = (id, h, mins) => costs.push({ ts: t(h), duration_ms: mins * M, sessionId: id });
-  for (const [id, hs] of Object.entries({ wkr00001: [58, 55, 52, 40], wkr00002: [62, 60, 56, 48, 45, 42, 38, 36], wkr00003: [48, 47], wkr00004: [35, 34.5, 33], wkr00005: [11.5, 10, 8], lead0001: [65, 63, 50], cond0001: [69, 60, 50, 29, 20, 14] })) {
+  for (const [id, hs] of Object.entries({ wkr00001: [58, 55, 52, 40], wkr00002: [62, 60, 56, 48, 45, 42, 38, 36], wkr00003: [48, 47], wkr00004: [35, 34.5, 33], wkr00005: [11.5, 10, 8], 1ead0001: [65, 63, 50], c0000001: [69, 60, 50, 29, 20, 14] })) {
     for (const h of hs) turn(id, h, 12);
   }
   const transcripts = {

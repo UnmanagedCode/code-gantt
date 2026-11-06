@@ -13,13 +13,13 @@ const userText = (text, extra = {}) => ({ type: 'user', timestamp: TS, uuid: 'u2
 const wakeHeader = (id) => `[[cc:wake-callback]]Worker \`${id}\` finished its turn. Its recent output follows.\n[[cc:wake-body]]${S}`;
 
 test('governed send_prompt tool_use → call with bare tool, raw target, raw forward id', () => {
-  const out = extractLine(toolUse('mcp__code-conductor__send_prompt', { sessionId: 'w1', text: S, forward: { sessionId: 'f1' } }));
-  assert.deepEqual(out, [{ k: 'call', id: 'toolu_1', ts: Date.parse(TS), tool: 'send_prompt', target: 'w1', forward: 'f1' }]);
+  const out = extractLine(toolUse('mcp__code-conductor__send_prompt', { sessionId: 'aaaa1111', text: S, forward: { sessionId: 'f1' } }));
+  assert.deepEqual(out, [{ k: 'call', id: 'toolu_1', ts: Date.parse(TS), tool: 'send_prompt', target: 'aaaa1111', forward: 'f1' }]);
 });
 
 test('every governed tool is extracted (parity with the ledger interaction set)', () => {
   for (const tool of GOVERNED_TOOLS) {
-    const out = extractLine(toolUse(`mcp__code-conductor__${tool}`, { sessionId: 'w1' }));
+    const out = extractLine(toolUse(`mcp__code-conductor__${tool}`, { sessionId: 'aaaa1111' }));
     assert.equal(out.length, 1, tool);
     assert.equal(out[0].tool, tool);
   }
@@ -27,7 +27,7 @@ test('every governed tool is extracted (parity with the ledger interaction set)'
 
 test('non-governed cc tools and non-cc tools yield nothing', () => {
   for (const n of ['mcp__code-conductor__describe_session', 'mcp__code-conductor__spawn_instance', 'mcp__code-conductor__list_sessions', 'Bash', 'mcp__other__send_prompt']) {
-    assert.deepEqual(extractLine(toolUse(n, { sessionId: 'w1' })), [], n);
+    assert.deepEqual(extractLine(toolUse(n, { sessionId: 'aaaa1111' })), [], n);
   }
 });
 
@@ -49,30 +49,30 @@ test('user wake lines with array and string content → wake', () => {
 
 test('attachment queued_command wake (array and string prompt) → wake', () => {
   const att = (prompt) => ({ type: 'attachment', timestamp: TS, uuid: 'u4', attachment: { type: 'queued_command', prompt } });
-  assert.equal(extractLine(att(wakeHeader('w1')))[0].worker, 'w1');
-  assert.equal(extractLine(att([{ type: 'text', text: wakeHeader('w2') }]))[0].worker, 'w2');
-  assert.deepEqual(extractLine({ type: 'attachment', timestamp: TS, uuid: 'u5', attachment: { type: 'other', prompt: wakeHeader('w3') } }), []);
+  assert.equal(extractLine(att(wakeHeader('aaaa1111')))[0].worker, 'aaaa1111');
+  assert.equal(extractLine(att([{ type: 'text', text: wakeHeader('bbbb2222') }]))[0].worker, 'bbbb2222');
+  assert.deepEqual(extractLine({ type: 'attachment', timestamp: TS, uuid: 'u5', attachment: { type: 'other', prompt: wakeHeader('cccc3333') } }), []);
 });
 
 test('a line with 3 markers → 3 wakes keyed by marker index; text before the marker is fine', () => {
-  const text = `preface\n${wakeHeader('a1')}\n${wakeHeader('b2')}\n${wakeHeader('c3')}`;
+  const text = `preface\n${wakeHeader('a1a1a1a1')}\n${wakeHeader('b2b2b2b2')}\n${wakeHeader('c3c3c3c3')}`;
   const out = extractLine(userText(text));
-  assert.deepEqual(out.map((w) => [w.key, w.worker]), [['u2#0', 'a1'], ['u2#1', 'b2'], ['u2#2', 'c3']]);
+  assert.deepEqual(out.map((w) => [w.key, w.worker]), [['u2#0', 'a1a1a1a1'], ['u2#1', 'b2b2b2b2'], ['u2#2', 'c3c3c3c3']]);
 });
 
 test('heartbeat header → heartbeat:true', () => {
-  const out = extractLine(userText('[[cc:wake-callback]]Worker `h1` did NOT finish — timed out after 600s.\n[[cc:wake-body]]x'));
-  assert.deepEqual(out.map((w) => [w.worker, w.heartbeat]), [['h1', true]]);
+  const out = extractLine(userText('[[cc:wake-callback]]Worker `a0a0a0a0` did NOT finish — timed out after 600s.\n[[cc:wake-body]]x'));
+  assert.deepEqual(out.map((w) => [w.worker, w.heartbeat]), [['a0a0a0a0', true]]);
 });
 
 test('a backticked id inside the body after the wake-body marker is not taken', () => {
-  const out = extractLine(userText('[[cc:wake-callback]]Worker `real` finished.\n[[cc:wake-body]]see Worker `fake` and `other`'));
-  assert.deepEqual(out.map((w) => w.worker), ['real']);
-  assert.deepEqual(extractLine(userText('[[cc:wake-callback]]no worker named here\n[[cc:wake-body]]Worker `fake`')), []);
+  const out = extractLine(userText('[[cc:wake-callback]]Worker `beef0001` finished.\n[[cc:wake-body]]see Worker `feedface` and `other`'));
+  assert.deepEqual(out.map((w) => w.worker), ['beef0001']);
+  assert.deepEqual(extractLine(userText('[[cc:wake-callback]]no worker named here\n[[cc:wake-body]]Worker `feedface`')), []);
 });
 
 test('queue-operation, last-prompt, api-request-blob and assistant lines quoting the marker → nothing', () => {
-  const m = wakeHeader('q1');
+  const m = wakeHeader('0a0a0a0a');
   assert.deepEqual(extractLine({ type: 'queue-operation', operation: 'remove', content: m, timestamp: TS }), []);
   assert.deepEqual(extractLine({ type: 'last-prompt', lastPrompt: m }), []);
   assert.deepEqual(extractLine({ type: 'api-request-blob', blob: m }), []);
@@ -81,8 +81,8 @@ test('queue-operation, last-prompt, api-request-blob and assistant lines quoting
 
 test('no extracted event contains the prompt sentinel', () => {
   const all = [
-    ...extractLine(toolUse('mcp__code-conductor__send_prompt', { sessionId: 'w1', text: S, feedback: S, answers: [S] })),
-    ...extractLine(userText(wakeHeader('w1'))),
+    ...extractLine(toolUse('mcp__code-conductor__send_prompt', { sessionId: 'aaaa1111', text: S, feedback: S, answers: [S] })),
+    ...extractLine(userText(wakeHeader('aaaa1111'))),
     ...extractLine({ type: 'user', timestamp: TS, message: { content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'text', text: S }] }] } }),
   ];
   assert.ok(all.length >= 3);

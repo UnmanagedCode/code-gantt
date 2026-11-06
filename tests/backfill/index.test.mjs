@@ -25,7 +25,7 @@ function setup(transcripts, extraSessions = {}) {
     cond: { ...sess({ id: 'cond' }), segments: [
       { id: 'cb1', reason: 'initial', at: TS }, { id: 'cb2', reason: 'renew', at: TS },
     ], current: 'cb2' },
-    w1: sess({ id: 'w1', parent: 'cond', project: 'p', conducted: true }),
+    aaaa1111: sess({ id: 'aaaa1111', parent: 'cond', project: 'p', conducted: true }),
     stranger: { ...sess({ id: 'stranger' }), segments: [{ id: 'sb1', reason: 'initial', at: TS }] },
     ...extraSessions,
   };
@@ -38,7 +38,7 @@ function setup(transcripts, extraSessions = {}) {
 }
 
 test('only owners’ transcripts are scanned; non-owner calls absent from results and cache', async () => {
-  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')], sb1: [call('toolu_z', 'w1'), result('toolu_z')] });
+  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')], sb1: [call('toolu_z', 'aaaa1111'), result('toolu_z')] });
   const idx = mkIndex();
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.id), ['toolu_a']);
@@ -47,17 +47,17 @@ test('only owners’ transcripts are scanned; non-owner calls absent from result
 });
 
 test('all of an owner’s renew segments are scanned and each call carries its owner', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')], cb2: [call('toolu_b', 'w1'), result('toolu_b'), wake('u1', 'w1')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')], cb2: [call('toolu_b', 'aaaa1111'), result('toolu_b'), wake('u1', 'aaaa1111')] });
   const idx = mkIndex();
   await idx.scan(byId);
   const c = idx.collect();
   assert.deepEqual(c.calls.map((x) => [x.id, x.owner]).sort(), [['toolu_a', 'cond'], ['toolu_b', 'cond']]);
-  assert.deepEqual(c.wakes.map((x) => [x.worker, x.owner]), [['w1', 'cond']]);
+  assert.deepEqual(c.wakes.map((x) => [x.worker, x.owner]), [['aaaa1111', 'cond']]);
   s.cleanup();
 });
 
 test('a prune-overlap duplicate call (and wake) is counted once', async () => {
-  const lines = [call('toolu_a', 'w1'), result('toolu_a'), wake('u1', 'w1')];
+  const lines = [call('toolu_a', 'aaaa1111'), result('toolu_a'), wake('u1', 'aaaa1111')];
   const { s, byId, mkIndex } = setup({ cb1: lines, cb2: lines });
   const idx = mkIndex();
   await idx.scan(byId);
@@ -68,14 +68,14 @@ test('a prune-overlap duplicate call (and wake) is counted once', async () => {
 });
 
 test('incremental: a second pass reads only appended bytes (poison proves no re-read)', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   const idx = mkIndex();
   await idx.scan(byId);
   const p = s.transcriptPath('cb1');
   const orig = fs.readFileSync(p, 'utf8');
   // same-length poison over the already-read bytes
   fs.writeFileSync(p, orig.replaceAll('toolu_a', 'toolu_X'));
-  s.append(p, call('toolu_c', 'w1'));
+  s.append(p, call('toolu_c', 'aaaa1111'));
   s.append(p, result('toolu_c'));
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.id).sort(), ['toolu_a', 'toolu_c']);
@@ -83,7 +83,7 @@ test('incremental: a second pass reads only appended bytes (poison proves no re-
 });
 
 test('a fresh BackfillIndex loads the cache and does not rescan (poison)', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   await mkIndex().scan(byId);
   const p = s.transcriptPath('cb1');
   fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replaceAll('toolu_a', 'toolu_X'));
@@ -94,7 +94,7 @@ test('a fresh BackfillIndex loads the cache and does not rescan (poison)', async
 });
 
 test('a cache version mismatch triggers a rebuild', async () => {
-  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')] });
+  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   await mkIndex().scan(byId);
   const doc = dd.readJson('backfill-v1.json');
   doc.version = 999;
@@ -107,7 +107,7 @@ test('a cache version mismatch triggers a rebuild', async () => {
 });
 
 test('a tool_use in pass 1 and its result in pass 2 → resolved (pending calls are not emitted)', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111')] });
   const idx = mkIndex();
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls, []);
@@ -118,7 +118,7 @@ test('a tool_use in pass 1 and its result in pass 2 → resolved (pending calls 
 });
 
 test('a refused call resolves to ok:false', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a', false)] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a', false)] });
   const idx = mkIndex();
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.ok), [false]);
@@ -126,17 +126,17 @@ test('a refused call resolves to ok:false', async () => {
 });
 
 test('a truncated file is rescanned from the start', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a'), call('toolu_b', 'w1'), result('toolu_b')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a'), call('toolu_b', 'aaaa1111'), result('toolu_b')] });
   const idx = mkIndex();
   await idx.scan(byId);
-  s.writeTranscript('cb1', [call('toolu_n', 'w1'), result('toolu_n')]);
+  s.writeTranscript('cb1', [call('toolu_n', 'aaaa1111'), result('toolu_n')]);
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.id), ['toolu_n']);
   s.cleanup();
 });
 
 test('a missing transcript is counted and does not throw; progress reaches ready', async () => {
-  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a')] });
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   const idx = mkIndex();
   await idx.scan(byId);
   const st = idx.status();
@@ -147,7 +147,7 @@ test('a missing transcript is counted and does not throw; progress reaches ready
 });
 
 test('the cache file text contains no prompt sentinel', async () => {
-  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'w1'), result('toolu_a'), wake('u1', 'w1')], cb2: [call('toolu_p', 'w1')] });
+  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a'), wake('u1', 'aaaa1111')], cb2: [call('toolu_p', 'aaaa1111')] });
   await mkIndex().scan(byId);
   const text = fs.readFileSync(path.join(dd.dir, 'backfill-v1.json'), 'utf8');
   assert.ok(text.includes('toolu_a'));

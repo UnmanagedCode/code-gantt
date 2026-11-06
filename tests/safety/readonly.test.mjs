@@ -12,10 +12,10 @@ import { createApp } from '../../src/http/app.js';
 test('a full app run changes nothing in the store or transcript root; every new file is under dataDir', async () => {
   const now = Date.now();
   const s = makeStore({
-    sessions: { c: { ...sess({ id: 'c', backing: 'cb1' }) }, w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true, at: iso(now - min(5)) }) },
-    ledger: [{ ts: iso(now - min(4)), kind: 'spawn', sessionId: 'w', stage: 'plan' }],
-    costs: [{ ts: now - min(3), duration_ms: 1000, sessionId: 'w' }],
-    transcripts: { cb1: [{ type: 'user', timestamp: iso(now - min(2)), uuid: 'u', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`w\` finished.\n[[cc:wake-body]]${S}` }] } }] },
+    sessions: { cccc0000: { ...sess({ id: 'cccc0000', backing: 'cb1' }) }, aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true, at: iso(now - min(5)) }) },
+    ledger: [{ ts: iso(now - min(4)), kind: 'spawn', sessionId: 'aaaa1111', stage: 'plan' }],
+    costs: [{ ts: now - min(3), duration_ms: 1000, sessionId: 'aaaa1111' }],
+    transcripts: { cb1: [{ type: 'user', timestamp: iso(now - min(2)), uuid: 'u', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`aaaa1111\` finished.\n[[cc:wake-body]]${S}` }] } }] },
   });
   const pub = path.join(s.root, 'pub-fixture');
   fs.mkdirSync(pub);
@@ -37,10 +37,10 @@ test('a full app run changes nothing in the store or transcript root; every new 
   await (await fetch(`${url}/api/gantt`)).json();
 
   const appended = s.files.ledger;
-  s.appendLedger({ ts: iso(now - min(1)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  s.appendLedger({ ts: iso(now - min(1)), kind: 'retire', sessionId: 'aaaa1111', reason: 'x' });
   await live.poll();
   const p = await (await fetch(`${url}/api/gantt`)).json();
-  assert.equal(p.sessions.w.endKind, 'retired');
+  assert.equal(p.sessions.aaaa1111.endKind, 'retired');
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
   live.stop();
