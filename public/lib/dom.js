@@ -3,12 +3,13 @@
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const REFUSED_ATTR = /^on/i;
-const REFUSED_NAMES = new Set(['style', 'href', 'src', 'srcdoc', 'xlink:href']);
+// `src` as a prefix also covers the srcdoc and srcset variants.
+const REFUSED_NAMES = /^(style|href|src|xlink:href)/i;
 const REFUSED_TAGS = new Set(['script', 'iframe', 'object', 'embed', 'img', 'link', 'base']);
 
 function build(node, attrs, children) {
   for (const [k, v] of Object.entries(attrs ?? {})) {
-    if (REFUSED_ATTR.test(k) || REFUSED_NAMES.has(k.toLowerCase())) throw new Error(`dom: attribute "${k}" is not allowed`);
+    if (REFUSED_ATTR.test(k) || REFUSED_NAMES.test(k)) throw new Error(`dom: attribute "${k}" is not allowed`);
     if (v == null || v === false) continue;
     node.setAttribute(k, v === true ? '' : String(v));
   }
