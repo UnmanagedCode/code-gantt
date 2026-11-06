@@ -42,7 +42,7 @@ test('only owners’ transcripts are scanned; non-owner calls absent from result
   const idx = mkIndex();
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.id), ['toolu_a']);
-  assert.equal(JSON.stringify(dd.readJson('backfill-v1.json')).includes('toolu_z'), false);
+  assert.equal(JSON.stringify(dd.readJson('backfill.json')).includes('toolu_z'), false);
   s.cleanup();
 });
 
@@ -96,10 +96,10 @@ test('a fresh BackfillIndex loads the cache and does not rescan (poison)', async
 test('a cache version mismatch triggers a rebuild', async () => {
   const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   await mkIndex().scan(byId);
-  const doc = dd.readJson('backfill-v1.json');
+  const doc = dd.readJson('backfill.json');
   doc.version = 999;
   doc.files = Object.fromEntries(Object.entries(doc.files).map(([k, v]) => [k, { ...v, calls: [], offset: v.size }]));
-  dd.writeJsonAtomic('backfill-v1.json', doc);
+  dd.writeJsonAtomic('backfill.json', doc);
   const fresh = mkIndex();
   await fresh.scan(byId);
   assert.deepEqual(fresh.collect().calls.map((c) => c.id), ['toolu_a']);
@@ -149,7 +149,7 @@ test('a missing transcript is counted and does not throw; progress reaches ready
 test('the cache file text contains no prompt sentinel', async () => {
   const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a'), wake('u1', 'aaaa1111')], cb2: [call('toolu_p', 'aaaa1111')] });
   await mkIndex().scan(byId);
-  const text = fs.readFileSync(path.join(dd.dir, 'backfill-v1.json'), 'utf8');
+  const text = fs.readFileSync(path.join(dd.dir, 'backfill.json'), 'utf8');
   assert.ok(text.includes('toolu_a'));
   assert.equal(text.includes(S), false);
   s.cleanup();
@@ -187,7 +187,7 @@ test('S2: a malformed cache is rejected and rebuilt, not trusted', async () => {
   ];
   for (const doc of bad) {
     const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
-    dd.writeJsonAtomic('backfill-v1.json', doc);
+    dd.writeJsonAtomic('backfill.json', doc);
     const idx = mkIndex();
     await idx.scan(byId);
     assert.deepEqual(idx.collect().calls.map((c) => c.id), ['toolu_a'], JSON.stringify(doc));
@@ -199,7 +199,7 @@ test('S4: a crafted wake line without a body marker leaves no sentinel in the ca
   const crafted = { type: 'user', timestamp: TS, uuid: 'x', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`${S}\` finished` }] } };
   const { s, byId, dd, mkIndex } = setup({ cb1: [crafted, call('toolu_a', 'aaaa1111'), result('toolu_a')] });
   await mkIndex().scan(byId);
-  assert.equal(fs.readFileSync(path.join(dd.dir, 'backfill-v1.json'), 'utf8').includes(S), false);
+  assert.equal(fs.readFileSync(path.join(dd.dir, 'backfill.json'), 'utf8').includes(S), false);
   s.cleanup();
 });
 
@@ -241,6 +241,28 @@ test('R5: ids named like Object.prototype members never resolve as pending calls
   const idx = mkIndex();
   await idx.scan(byId);
   assert.deepEqual(idx.collect().calls.map((c) => c.id), ['hasOwnProperty'], 'only the genuine call exists');
-  assert.equal(validCache(dd.readJson('backfill-v1.json')), true, 'the persisted cache is still valid');
+  assert.equal(validCache(dd.readJson('backfill.json')), true, 'the persisted cache is still valid');
+  s.cleanup();
+});
+
+test('F2: a resolved call records the time of its tool_result as rts, distinct from the tool_use ts', async () => {
+  const later = { ...result('toolu_a'), timestamp: '2026-11-01T10:07:00.000Z' };
+  const { s, byId, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), later] });
+  const idx = mkIndex();
+  await idx.scan(byId);
+  const [c] = idx.collect().calls;
+  assert.equal(c.ts, Date.parse(TS));
+  assert.equal(c.rts, Date.parse('2026-11-01T10:07:00.000Z'));
+  s.cleanup();
+});
+
+test('F2: a cache written before rts existed is rejected and rebuilt, so every cached call carries rts', async () => {
+  const { s, byId, dd, mkIndex } = setup({ cb1: [call('toolu_a', 'aaaa1111'), result('toolu_a')] });
+  const old = { version: 1, files: { [s.transcriptPath('cb1')]: { size: 1, offset: 1, owner: 'cond', pending: {}, calls: [{ id: 'toolu_stale', ts: 1, tool: 'send_prompt', target: 'aaaa1111', ok: true }], wakes: [] } } };
+  dd.writeJsonAtomic('backfill-v1.json', old);
+  const idx = mkIndex();
+  await idx.scan(byId);
+  assert.deepEqual(idx.collect().calls.map((c) => [c.id, Number.isFinite(c.rts)]), [['toolu_a', true]]);
+  assert.equal(dd.readJson('backfill-v1.json'), null, 'the legacy cache file is removed');
   s.cleanup();
 });

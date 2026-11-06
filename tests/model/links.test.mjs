@@ -178,3 +178,66 @@ test('R2: only a backfill event just before the cutoff pairs with a ledger event
   const wide = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [call({ id: 'early', ts: cut - 60_000 })], wakes: [] } });
   assert.equal(wide.links.filter((l) => l.source === 'backfill').length, 1, 'a call a minute before the cutoff is not a twin');
 });
+
+// F2: a backfilled call's `ts` is its assistant tool_use line (before the handler runs, possibly minutes
+// before for a parked send_prompt); `rts` is its tool_result line, written after the handler like the
+// ledger entry. Cutoff and twin matching use rts.
+test('F2: a twin whose tool_use is 40 s before the cutoff but whose result lands after it renders once', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [call({ ts: cut - 40_000, rts: cut + 1000 })], wakes: [] } });
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => l.source), ['ledger']);
+});
+
+test('F2: a twin parked for several minutes (tool_use 5 min before, result at the cutoff) renders once', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [call({ ts: cut - min(5), rts: cut + 2000 })], wakes: [] } });
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => l.source), ['ledger']);
+});
+
+test('F2: a genuine call that completed 100 s before the cutoff is kept, with or without rts', () => {
+  const cut = T0 + min(50);
+  for (const extra of [{}, { rts: cut - 99_000 }]) {
+    const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut }), lev({ ts: cut + 10_000 })], backfill: { calls: [call({ ts: cut - 100_000, ...extra })], wakes: [] } });
+    assert.equal(r.links.filter((l) => l.source === 'backfill').length, 1, JSON.stringify(extra));
+  }
+});
+
+test('F2: a genuine same-key call shortly before the cutoff is not eaten: the ledger event pairs with its nearer twin', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [
+    call({ id: 'genuine', ts: cut - 11_000, rts: cut - 9000 }),
+    call({ id: 'twin', ts: cut - 20_000, rts: cut + 1000 }),
+  ], wakes: [] } });
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => [l.source, l.ts]), [['backfill', cut - 11_000], ['ledger', cut]]);
+});
+
+test('F2: a genuine call shortly before the cutoff is not eaten by an unrelated ledger interaction (other tool or target)', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut,
+    ledger: [lev({ ts: cut, tool: 'approve_plan' }), lev({ ts: cut + 1000, sessionId: 'wrk2' })],
+    backfill: { calls: [call({ ts: cut - 6000, rts: cut - 5000 })], wakes: [] } });
+  assert.equal(r.links.filter((l) => l.source === 'backfill').length, 1);
+});
+
+test('F2: a call whose result landed at or after the cutoff belongs to the ledger even with no twin to pair', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut, sessionId: 'wrk2' })], backfill: { calls: [call({ ts: cut - 10_000, rts: cut + 5000 })], wakes: [] } });
+  assert.equal(r.links.filter((l) => l.source === 'backfill').length, 0);
+});
+
+test('F2: transition dedupe also uses the result time, so a parked stage-moving call still draws one link', () => {
+  const t = T0 + min(20);
+  const trans = { line: 1, ts: t, kind: 'transition', sessionId: 'wrk1', to: 'implement', via: 'approve_plan' };
+  const r = run({ ledger: [trans], backfill: { calls: [call({ tool: 'approve_plan', ts: t - min(5), rts: t + 500 })], wakes: [] } });
+  assert.equal(r.links.filter((l) => l.type === 'approve_plan').length, 1);
+});
+
+test('F2 (wakes): a wake straddling the cutoff by a small skew is deduped; one a minute earlier is kept (wakes have no result time)', () => {
+  const cut = T0 + min(50);
+  const ledger = [{ line: 1, ts: cut, kind: 'wake', sessionId: 'wrk1', conductorSessionId: 'cond' }];
+  const r = run({ cutoffTs: cut, ledger, backfill: { calls: [], wakes: [
+    { key: 'a#0', ts: cut - 2000, worker: 'wrk1', owner: 'cond' },
+    { key: 'b#0', ts: cut - 60_000, worker: 'wrk1', owner: 'cond' },
+  ] } });
+  assert.deepEqual(r.links.filter((l) => l.type === 'wake').map((l) => [l.source, l.ts]), [['backfill', cut - 60_000], ['ledger', cut]]);
+});

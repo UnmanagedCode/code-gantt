@@ -60,19 +60,19 @@ Ids in any source may be public ids, backing (segment) ids, or prefixes; see [ar
 | Line | Yields |
 |---|---|
 | assistant `tool_use` named `mcp__code-conductor__<governed tool>` with `input.sessionId` | call (tool, target, optional `input.forward.sessionId`) |
-| user `tool_result` for a pending call | result: `ok:false` on `is_error` or JSON `ok:false` |
-| user line or `attachment` of type `queued_command` containing `[[cc:wake-callback]]Worker \`ID\` …` | wake. The header is the text after the marker up to `\n[[cc:wake-body]]` or the next marker, at most 8192 chars (cc's longest human-prompt note, decline note and stale note before the clause fit). The worker is the first `Worker \`ID\`` clause on a header line that does not start with `>` (quoted human prompts never supply it); `ID` must be 8-hex (optionally `-xxxx`) or a UUID. The heartbeat flag is set when `did NOT finish` directly follows that clause. At most 500 id-bearing markers per line are extracted and 2000 considered; the overflow is counted in `diagnostics.backfill.droppedMarkers`. |
+| user `tool_result` for a pending call | result: `ok:false` on `is_error` or JSON `ok:false`, plus the line's `ts` (kept as the call's `rts`) |
+| user line or `attachment` of type `queued_command`, per text block that **starts with** `[[cc:wake-callback]]` | wake (one per such block; cc recognises a wake with `startsWith`, so a marker anywhere else — mid-line, in a quoted human prompt, in a folded body — is plain text and neither starts a delivery nor ends a header). Coalesced deliveries are separate blocks of one line. The header is the block text after the marker up to `\n[[cc:wake-body]]`, at most 8192 chars (cc's longest human-prompt note, decline note and stale note before the clause fit); nothing after the body separator is read. The worker is the first `Worker \`ID\`` clause on a header line that does not start with `>` (quoted human prompts never supply it); `ID` must be 8-hex (optionally `-xxxx`) or a UUID. The heartbeat flag is set when `did NOT finish` directly follows that clause. At most 500 deliveries per line are extracted and 2000 blocks considered; the overflow is counted in `diagnostics.backfill.droppedMarkers`. |
 
-Only ids, tool, ts, heartbeat and ok are kept. A `tool_use` id must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`.
+`ts` is the `tool_use` line (written before the handler runs); `rts` is the `tool_result` line (written after it, like the ledger entry). Only ids, tool, ts, rts, heartbeat and ok are kept. A `tool_use` id must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`.
 
 ## Backfill cache
 
-`<CONDUCTOR_PLUGIN_DATA_DIR>/backfill-v1.json`:
+`<CONDUCTOR_PLUGIN_DATA_DIR>/backfill.json`:
 
 ```
-{ version: 1,
+{ version: 2,
   files: { "<abs path>": { size, offset, owner, pending:{ "<toolu id>":{ts,tool,target,forward?} },
-                           calls:[{id,ts,tool,target,forward?,ok}], wakes:[{key,ts,worker,heartbeat?}] } } }
+                           calls:[{id,ts,rts?,tool,target,forward?,ok}], wakes:[{key,ts,worker,heartbeat?}] } } }
 ```
 
-The file is untrusted input: a version mismatch, unreadable file, or any entry of the wrong shape (non-numeric `size`/`offset`, non-array `calls`/`wakes`, non-object `pending`, ill-typed call or wake) rejects the whole cache and the backfill rebuilds. A cached `tool` outside the governed set renders as `other`.
+The file is untrusted input: a version mismatch (the earlier `backfill-v1.json`, which lacked `rts`, is deleted and never read), unreadable file, or any entry of the wrong shape (non-numeric `size`/`offset`, non-array `calls`/`wakes`, non-object `pending`, ill-typed call or wake) rejects the whole cache and the backfill rebuilds. A cached `tool` outside the governed set renders as `other`.

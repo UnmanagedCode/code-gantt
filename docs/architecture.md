@@ -40,7 +40,7 @@ Defined in `buildBar`: kill/retire → live → approx. A kill after the last re
 - A ledger `interaction` draws conductor → session typed by tool; tools outside `GOVERNED_TOOLS` become `other` and are counted in `unknownTools`.
 - Backfill events at or after `LedgerReader.cutoffTs` (the first ledger `interaction` or `wake`) are dropped, so the ledger is authoritative from then on. Calls with `ok:false` or still pending are dropped.
 - **Transition dedupe:** a backfill call or ledger interaction with the same target and tool as a transition's `via`, within ±120 s, is dropped; matching is one-to-one, nearest first.
-- **Boundary dedupe:** the ledger entry is written after the transcript line, so a backfilled call or wake just before the cutoff has a ledger twin just after it. Only a backfill link within 30 s before `cutoffTs` and a ledger interaction/wake link within 30 s after it can pair; a pair needs the same type, endpoints and heartbeat flag and is matched one-to-one, nearest first. Earlier backfill links are never dropped.
+- **Cutoff and twins (`buildLinks`):** a backfilled call's `ts` is its `tool_use` line, which precedes the handler (minutes for a parked `send_prompt`); its `rts` (the `tool_result` line) and the ledger entry are both written after the handler. All cutoff and twin decisions therefore use the call's completion time `rts` (`ts` when absent; wakes have only their transcript time). A backfill event completing at or after `cutoffTs` belongs to the ledger and is dropped. One completing before it is kept, unless it is the twin of a ledger interaction/wake written just after the cutoff: same type, endpoints and heartbeat flag, completion within 30 s of the ledger entry, paired one-to-one nearest first over every backfill event near the cutoff (including those the cutoff drops), so a genuine same-key event just before the cutoff cannot take a ledger entry from its twin. Wakes have no result line, so their pairing uses transcript time: a wake delivered mid-turn is written later than the ledger entry and is dropped by the plain cutoff, and a skew-free pair is matched within the window. Trade-off: a genuine wake of the same worker within 30 s before the cutoff, with a ledger wake just after it and no twin of its own, would be taken for the twin.
 - The backfill extractor and the ledger path share `GOVERNED_TOOLS`, so a tool is typed the same before and after the cutoff; a cached backfill tool outside the set is typed `other`.
 
 ### Id resolution
@@ -51,7 +51,7 @@ Defined in `buildBar`: kill/retire → live → approx. A kill after the last re
 
 - Owners = sessions that are some session's `parent`. Their non-`dropped` segment ids are located by listing `<transcript root>/*/*.jsonl` (`buildBackingIndex`, refreshed once on a miss); cwd is never reconstructed.
 - Prefilter substrings: `mcp__code-conductor__`, `[[cc:wake-callback]]`, `"tool_result"`.
-- Prune segments overlap their predecessor: calls dedupe by `tool_use` id and wakes by line `uuid#marker index`, per owner.
+- Prune segments overlap their predecessor: calls dedupe by `tool_use` id and wakes by line `uuid#block index`, per owner.
 - A `tool_use` and its `tool_result` may fall in different passes; unmatched calls stay in `pending`.
 - A scan requested while a pass runs is coalesced into one follow-up pass with the latest `sessions.json` snapshot, so a new owner is never skipped.
 - The backing index is rebuilt at most once per pass. The cache is validated on load (see protocol) and rejected whole on any mismatch.

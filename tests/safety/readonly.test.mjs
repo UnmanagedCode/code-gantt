@@ -50,7 +50,7 @@ test('a full app run changes nothing in the store or transcript root; every new 
   assert.deepEqual(changed, [appended]);
   assert.deepEqual(await snapshotDir(pub), beforePub);
   const files = Object.keys(await snapshotDir(s.dataDir));
-  assert.ok(files.some((f) => f.endsWith('backfill-v1.json')));
+  assert.ok(files.some((f) => f.endsWith('backfill.json')));
   assert.ok(files.every((f) => f.startsWith(s.dataDir + path.sep)));
   s.cleanup();
 });

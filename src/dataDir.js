@@ -40,6 +40,9 @@ export function createDataDir(dir) {
         fs.rmSync(tmp, { force: true });
       }
     },
+    remove(rel) {
+      fs.rmSync(guard(rel), { force: true });
+    },
     readJson(rel) {
       try {
         return JSON.parse(fs.readFileSync(guard(rel), 'utf8'));

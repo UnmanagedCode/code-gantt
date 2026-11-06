@@ -3,8 +3,8 @@ import { GOVERNED_TOOLS, OTHER_LINK_TYPE } from './linkTypes.js';
 
 const GOVERNED = new Set(GOVERNED_TOOLS);
 const DEDUPE_WINDOW_MS = 120_000;
-// The ledger entry follows its transcript line by moments, so a twin pair straddles the cutoff closely:
-// the backfill event within this window before it, the ledger event within it after.
+// How far a backfill event's completion time (result line; transcript line for wakes) may sit from its
+// ledger twin: the ledger entry and the result line are both written after the handler returns.
 const BOUNDARY_WINDOW_MS = 30_000;
 const startOf = (rec) => Date.parse(rec.segments?.[0]?.at) || 0;
 
@@ -77,7 +77,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
         if (!from) continue;
       }
       const link = { ts: ev.ts, type, from, to, source: 'ledger' };
-      candidates.push({ link, target: to, tool: ev.tool });
+      candidates.push({ link, target: to, tool: ev.tool, et: ev.ts });
     } else if (ev.kind === 'wake') {
       const worker = resolve(ev.sessionId);
       const cond = resolve(ev.conductorSessionId, worker);
@@ -88,9 +88,11 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     }
   }
 
-  const keep = (e) => cutoffTs == null || e.ts < cutoffTs;
+  // A backfilled call's `ts` is its tool_use line (before the handler runs, minutes before for a parked
+  // send_prompt); its `rts` is the tool_result line, written after the handler like the ledger entry. All
+  // cutoff and twin decisions use `et` = rts when known, so they do not depend on how long the handler took.
   for (const c of backfill.calls) {
-    if (!c.ok || !keep(c)) continue;
+    if (!c.ok) continue;
     const to = resolve(c.target, c.owner);
     if (!to) continue;
     let from = resolve(c.owner);
@@ -100,20 +102,20 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
       type = 'forward';
     }
     if (!from) continue;
-    candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool });
+    candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool, et: c.rts ?? c.ts });
   }
   for (const w of backfill.wakes) {
-    if (!keep(w)) continue;
     const worker = resolve(w.worker, w.owner);
     const owner = resolve(w.owner);
     if (!worker || !owner) continue;
-    backfillCands.push({ ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) });
+    // wakes have no result line: their transcript time is all there is
+    backfillCands.push({ link: { ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) }, et: w.ts });
   }
 
   // one-to-one nearest-first transition dedupe
   const pairs = [];
   transitions.forEach((t, ti) => candidates.forEach((c, ci) => {
-    const dt = Math.abs(c.link.ts - t.ts);
+    const dt = Math.abs(c.et - t.ts);
     if (c.target === t.target && c.tool === t.via && dt <= DEDUPE_WINDOW_MS) pairs.push({ ti, ci, dt });
   }));
   pairs.sort((a, b) => a.dt - b.dt);
@@ -130,29 +132,41 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
       push(c.link);
       ledgerRefs.push(c.link);
     } else {
-      backfillCands.push(c.link);
+      backfillCands.push({ link: c.link, et: c.et });
     }
   });
 
-  // Boundary dedupe: the ledger entry is written after the transcript line, so a backfilled call or
-  // wake just before the cutoff has a ledger twin (same type and endpoints, within the window).
-  const twins = [];
-  const beforeCut = (b) => cutoffTs != null && b.ts < cutoffTs && b.ts >= cutoffTs - BOUNDARY_WINDOW_MS;
-  const afterCut = (l) => cutoffTs != null && l.ts >= cutoffTs && l.ts <= cutoffTs + BOUNDARY_WINDOW_MS;
-  backfillCands.forEach((b, bi) => ledgerRefs.forEach((l, li) => {
-    if (!beforeCut(b) || !afterCut(l)) return; // only a straddling pair can be the same delivery
-    const dt = Math.abs(b.ts - l.ts);
-    if (b.type === l.type && b.from === l.from && b.to === l.to && Boolean(b.heartbeat) === Boolean(l.heartbeat) && dt <= BOUNDARY_WINDOW_MS) twins.push({ bi, li, dt });
-  }));
-  twins.sort((a, b) => a.dt - b.dt);
-  const usedL = new Set();
-  const twinned = new Set();
-  for (const t of twins) {
-    if (usedL.has(t.li) || twinned.has(t.bi)) continue;
-    usedL.add(t.li);
-    twinned.add(t.bi);
+  // Cutoff: the ledger is authoritative from its first interaction|wake. A backfill event that completed
+  // at or after the cutoff is the ledger's; one that completed before it is kept, unless it is the twin of
+  // a ledger entry written just after the cutoff (the entry follows the handler by moments). Twins are
+  // paired one-to-one nearest first over every backfill event near the cutoff, including those the cutoff
+  // would drop, so a genuine same-key event just before the cutoff cannot steal a ledger entry from its twin.
+  const near = new Set();
+  if (cutoffTs != null) {
+    const poolBf = [];
+    backfillCands.forEach((b, bi) => { if (b.et >= cutoffTs - BOUNDARY_WINDOW_MS && b.et <= cutoffTs + BOUNDARY_WINDOW_MS) poolBf.push(bi); });
+    const poolLd = ledgerRefs.filter((l) => l.ts >= cutoffTs && l.ts <= cutoffTs + 2 * BOUNDARY_WINDOW_MS);
+    const twins = [];
+    for (const bi of poolBf) {
+      const b = backfillCands[bi];
+      poolLd.forEach((l, li) => {
+        const dt = Math.abs(b.et - l.ts);
+        if (b.link.type === l.type && b.link.from === l.from && b.link.to === l.to && Boolean(b.link.heartbeat) === Boolean(l.heartbeat) && dt <= BOUNDARY_WINDOW_MS) twins.push({ bi, li, dt });
+      });
+    }
+    twins.sort((a, b) => a.dt - b.dt);
+    const usedL = new Set();
+    for (const t of twins) {
+      if (usedL.has(t.li) || near.has(t.bi)) continue;
+      usedL.add(t.li);
+      near.add(t.bi);
+    }
   }
-  backfillCands.forEach((b, bi) => { if (!twinned.has(bi)) push(b); });
+  backfillCands.forEach((b, bi) => {
+    if (near.has(bi)) return;
+    if (cutoffTs != null && b.et >= cutoffTs) return;
+    push(b.link);
+  });
 
   links.sort((a, b) => a.ts - b.ts);
   return { links, unresolved, unknownTools: Object.fromEntries(unknownTools) };

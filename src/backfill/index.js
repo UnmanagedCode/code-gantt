@@ -2,8 +2,9 @@ import { readFrom } from '../jsonlTail.js';
 import { buildBackingIndex } from './locate.js';
 import { extractLine } from './extract.js';
 
-const CACHE = 'backfill-v1.json';
-const VERSION = 1;
+const CACHE = 'backfill.json';
+const LEGACY_CACHE = 'backfill-v1.json'; // version 1 lacked the result time; it is never read again
+const VERSION = 2;
 const PERSIST_EVERY = 10;
 const PREFILTER = ['mcp__code-conductor__', '[[cc:wake-callback]]', '"tool_result"'];
 const prefilter = (line) => PREFILTER.some((p) => line.includes(p));
@@ -13,7 +14,7 @@ const num = (v) => Number.isFinite(v) && v >= 0;
 const str = (v) => typeof v === 'string';
 
 function validCall(c) {
-  return isObj(c) && str(c.id) && Number.isFinite(c.ts) && str(c.tool) && str(c.target) && typeof c.ok === 'boolean' && (c.forward === undefined || str(c.forward));
+  return isObj(c) && str(c.id) && Number.isFinite(c.ts) && str(c.tool) && str(c.target) && typeof c.ok === 'boolean' && (c.forward === undefined || str(c.forward)) && (c.rts === undefined || Number.isFinite(c.rts));
 }
 function validPending(c) {
   return isObj(c) && Number.isFinite(c.ts) && str(c.tool) && str(c.target) && (c.forward === undefined || str(c.forward));
@@ -46,6 +47,7 @@ export class BackfillIndex {
     this.running = null;
     this.rerun = false;
     this.latest = null;
+    dataDir.remove(LEGACY_CACHE);
     const cached = dataDir.readJson(CACHE);
     if (validCache(cached)) this.files = cached.files;
     else if (cached) console.warn('[code-gantt] backfill cache invalid or wrong version; rebuilding');
@@ -138,7 +140,7 @@ export class BackfillIndex {
           if (!Object.hasOwn(st.pending, ev.id)) continue; // never an inherited member such as `constructor`
           const c = st.pending[ev.id];
           delete st.pending[ev.id];
-          st.calls.push({ ...c, ok: ev.ok });
+          st.calls.push({ ...c, ok: ev.ok, ...(Number.isFinite(ev.ts) ? { rts: ev.ts } : {}) });
         } else if (ev.k === 'dropped') {
           st.dropped = (st.dropped ?? 0) + ev.count;
         } else {

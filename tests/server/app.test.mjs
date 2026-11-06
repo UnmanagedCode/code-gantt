@@ -136,7 +136,7 @@ test('S2: a malformed backfill cache on disk leads to a rebuild and a 200 from a
     ] },
   });
   fs.mkdirSync(s.dataDir, { recursive: true });
-  fs.writeFileSync(path.join(s.dataDir, 'backfill-v1.json'), JSON.stringify({ version: 1, files: { x: { size: 1, offset: 1, owner: 'cccc0000', pending: {}, calls: null, wakes: 7 } } }));
+  fs.writeFileSync(path.join(s.dataDir, 'backfill.json'), JSON.stringify({ version: 1, files: { x: { size: 1, offset: 1, owner: 'cccc0000', pending: {}, calls: null, wakes: 7 } } }));
   const pub = path.join(s.root, 'public');
   fs.mkdirSync(pub);
   fs.writeFileSync(path.join(pub, 'index.html'), '<title>t</title>');

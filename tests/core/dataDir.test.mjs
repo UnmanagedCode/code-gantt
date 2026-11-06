@@ -50,3 +50,15 @@ test('readJson returns null for a missing or unreadable file', () => {
   assert.equal(dd.readJson('bad.json'), null);
   t.done();
 });
+
+test('remove deletes a file inside the data dir, ignores a missing one, and refuses paths outside it', () => {
+  const t = tmp();
+  const dd = createDataDir(t.dir);
+  dd.ensure();
+  dd.writeJsonAtomic('old.json', { a: 1 });
+  dd.remove('old.json');
+  dd.remove('old.json');
+  assert.deepEqual(fs.readdirSync(t.dir), []);
+  assert.throws(() => dd.remove('../x'), /outside/);
+  t.done();
+});
