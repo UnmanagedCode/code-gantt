@@ -3,7 +3,7 @@
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const REFUSED_ATTR = /^on/i;
-// `src` as a prefix also covers the srcdoc and srcset variants.
+// A src prefix also covers the other src-like attributes.
 const REFUSED_NAMES = /^(style|href|src|xlink:href)/i;
 const REFUSED_TAGS = new Set(['script', 'iframe', 'object', 'embed', 'img', 'link', 'base']);
 
