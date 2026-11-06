@@ -98,4 +98,4 @@ Every 5 s `Live.poll` stats `sessions.json`, the ledger and `costs.jsonl`; a cha
 
 ## Measured first scan
 
-Real store, `npm run harness:real`: 402 owner transcript files, about 5.4 s from boot to `backfill.state === 'ready'`, 7 transcripts missing (segment files absent from the transcript root).
+Real store, `npm run harness:real`: about 400 owner transcript files, 3–6 s across runs from boot to `backfill.state === 'ready'`, 7 transcripts missing (segment files absent from the transcript root).
