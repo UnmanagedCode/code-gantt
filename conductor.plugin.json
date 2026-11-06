@@ -1,0 +1,8 @@
+{
+  "id": "code-gantt",
+  "name": "Code Gantt",
+  "version": "0.1.0",
+  "pluginApi": 1,
+  "backend": { "start": "npm start", "healthPath": "/api/health" },
+  "frontend": { "path": "/", "navLabel": "Code Gantt" }
+}

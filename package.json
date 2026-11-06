@@ -1,0 +1,15 @@
+{
+  "name": "code-gantt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Gantt chart of code-conductor session trees",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "env -u PROJECTS_ROOT -u CLAUDE_CONFIG_DIR -u CLAUDE_PROJECTS_ROOT -u CONDUCTOR_URL -u CONDUCTOR_PLUGIN_DATA_DIR node --test --test-concurrency=1 'tests/**/*.test.mjs'",
+    "harness": "node harness/playwright/golden-path.mjs",
+    "harness:real": "node harness/playwright/real-store.mjs"
+  },
+  "devDependencies": { "happy-dom": "*" }
+}
