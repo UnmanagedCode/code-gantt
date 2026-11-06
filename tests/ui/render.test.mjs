@@ -132,3 +132,25 @@ test('C6: free-text fields outside the payload schema are never rendered (page, 
   assert.equal(document.documentElement.outerHTML.includes(S), false);
   assert.match(root.querySelector('.diagnostics').textContent, /liveness: unavailable/);
 });
+
+test('R5: a selection named like an Object.prototype member that vanishes from the payload falls back to the hint, not garbage', async () => {
+  const p = payload();
+  p.sessions.constructor = { ...p.sessions.w2, id: 'constructor', endKind: 'retired' };
+  p.projects[0].trees[0].rows.push({ id: 'constructor', depth: 1, context: false });
+  const { root, app } = boot(p);
+  await app.load();
+  click([...root.querySelectorAll('.bar-g')].find((n) => n.getAttribute('data-id') === 'constructor'));
+  assert.ok(root.querySelector('#details').textContent.includes('constructor'));
+  delete p.sessions.constructor;
+  p.projects[0].trees[0].rows.pop();
+  await app.load();
+  assert.match(root.querySelector('#details').textContent, /Select a bar/);
+});
+
+test('R3: dropped wake markers are surfaced in the footer', async () => {
+  const p = payload();
+  p.diagnostics.backfill.droppedMarkers = 7;
+  const { root, app } = boot(p);
+  await app.load();
+  assert.match(root.querySelector('.diagnostics').textContent, /dropped wake markers: 7/);
+});

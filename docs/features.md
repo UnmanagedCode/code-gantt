@@ -13,7 +13,7 @@
 | End kind | Meaning |
 |---|---|
 | `retired` | Last ledger `retire` with no later `resume`; `endReason` is shown in the details. |
-| `killed` | A `kill_instance` link after the last resume (red outline). With a retire, the kill must land within a few seconds of it, in either order (cc writes the retire first and the kill interaction a moment later; transcripts show the reverse); the end is then the retire time. A kill long after a retire leaves the bar `retired`. |
+| `killed` | A `kill_instance` link after the last resume (red outline). With a retire the bound is one-sided: the kill may be at most 5 s *after* the retire (cc writes the retire first and the kill interaction a moment later), or any time *earlier* as long as it is after the last resume (transcripts show the kill first); the end is then the retire time. A kill more than 5 s after the retire leaves the bar `retired`. |
 | `live` | Session is live per cc's instance list; the bar extends to now. Requires `CONDUCTOR_URL`. |
 | `approx` | None of the above. The end is the latest of: last turn, last ledger event naming the session, last link touching it, last segment start. Drawn with a hatched tail; tooltip and details say "approximate end". |
 

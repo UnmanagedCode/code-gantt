@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeStore, sess } from '../helpers/store.mjs';
 import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
-import { BackfillIndex } from '../../src/backfill/index.js';
+import { BackfillIndex, validCache } from '../../src/backfill/index.js';
 import { createDataDir } from '../../src/dataDir.js';
 
 const TS = '2026-11-01T10:00:00.000Z';
@@ -215,5 +215,32 @@ test('S7: the backing index is rebuilt at most once per pass however many segmen
   await idx.scan(byId);
   assert.equal(idx.status().missing, 6);
   assert.ok(builds >= 1 && builds <= 2, `built ${builds} times`);
+  s.cleanup();
+});
+
+test('R3: wake markers beyond the per-line cap are counted in status().droppedMarkers and the count survives a restart', async () => {
+  const flood = { type: 'user', timestamp: TS, uuid: 'flood', message: { content: [{ type: 'text', text: '[[cc:wake-callback]]Worker `aaaa1111` finished.\n'.repeat(700) }] } };
+  const { s, byId, mkIndex } = setup({ cb1: [flood] });
+  const idx = mkIndex();
+  await idx.scan(byId);
+  assert.equal(idx.status().droppedMarkers, 200);
+  assert.equal(idx.collect().wakes.length, 500);
+  const fresh = mkIndex();
+  await fresh.scan(byId);
+  assert.equal(fresh.status().droppedMarkers, 200, 'a restart neither loses nor double-counts the drops');
+  s.cleanup();
+});
+
+test('R5: ids named like Object.prototype members never resolve as pending calls (no phantom call, cache stays valid)', async () => {
+  const lines = [
+    { type: 'user', timestamp: TS, uuid: 'r1', message: { content: [{ type: 'tool_result', tool_use_id: 'constructor', content: [{ type: 'text', text: '{"ok":true}' }] }] } },
+    { type: 'user', timestamp: TS, uuid: 'r2', message: { content: [{ type: 'tool_result', tool_use_id: 'toString', content: 'x' }] } },
+    call('hasOwnProperty', 'aaaa1111'), result('hasOwnProperty'),
+  ];
+  const { s, byId, dd, mkIndex } = setup({ cb1: lines });
+  const idx = mkIndex();
+  await idx.scan(byId);
+  assert.deepEqual(idx.collect().calls.map((c) => c.id), ['hasOwnProperty'], 'only the genuine call exists');
+  assert.equal(validCache(dd.readJson('backfill-v1.json')), true, 'the persisted cache is still valid');
   s.cleanup();
 });

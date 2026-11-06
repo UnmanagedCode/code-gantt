@@ -40,7 +40,7 @@ Defined in `buildBar`: kill/retire → live → approx. A kill after the last re
 - A ledger `interaction` draws conductor → session typed by tool; tools outside `GOVERNED_TOOLS` become `other` and are counted in `unknownTools`.
 - Backfill events at or after `LedgerReader.cutoffTs` (the first ledger `interaction` or `wake`) are dropped, so the ledger is authoritative from then on. Calls with `ok:false` or still pending are dropped.
 - **Transition dedupe:** a backfill call or ledger interaction with the same target and tool as a transition's `via`, within ±120 s, is dropped; matching is one-to-one, nearest first.
-- **Boundary dedupe:** the ledger entry is written after the transcript line, so a backfilled call or wake near the cutoff has a ledger twin. A backfill link with the same type, endpoints and heartbeat flag as a ledger interaction/wake link within ±120 s is dropped, one-to-one, nearest first.
+- **Boundary dedupe:** the ledger entry is written after the transcript line, so a backfilled call or wake just before the cutoff has a ledger twin just after it. Only a backfill link within 30 s before `cutoffTs` and a ledger interaction/wake link within 30 s after it can pair; a pair needs the same type, endpoints and heartbeat flag and is matched one-to-one, nearest first. Earlier backfill links are never dropped.
 - The backfill extractor and the ledger path share `GOVERNED_TOOLS`, so a tool is typed the same before and after the cutoff; a cached backfill tool outside the set is typed `other`.
 
 ### Id resolution
@@ -71,6 +71,10 @@ Defined in `buildBar`: kill/retire → live → approx. A kill after the last re
 
 - Only `src/dataDir.js` calls fs write APIs; every path is resolved, symlink-checked and must stay inside `CONDUCTOR_PLUGIN_DATA_DIR`. The directory is created `0700`; writes are tmp + rename.
 - Enforced by `tests/safety/sourceScan.test.mjs` (no write API elsewhere in `src/` or `server.js`) and `tests/safety/readonly.test.mjs` (before/after snapshot of store and transcripts).
+
+## Input-keyed maps
+
+Keys that come from files (tool names, ledger kinds, session ids, tool_use ids) are never used on a plain `{}`: `unknownTools`, `unknownKinds` and the payload's `sessions` are built from a `Map`, and pending calls are looked up with `Object.hasOwn`. A key such as `constructor` is therefore ordinary data.
 
 ## Concurrency
 

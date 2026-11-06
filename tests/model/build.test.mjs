@@ -120,3 +120,18 @@ test('C7: ledger events and cost rows of sessions that are not in sessions.json 
   assert.deepEqual(d.unmatchedStoreRows, { ledger: 2, costs: 2 });
   s.cleanup();
 });
+
+test('R5: sessions whose ids are named like Object.prototype members still appear in the payload', async () => {
+  const { s, state } = await fixture({
+    sessions: {
+      cccc0000: sess({ id: 'cccc0000', backing: 'cb-cond' }),
+      constructor: sess({ id: 'constructor', parent: 'cccc0000', project: 'p', conducted: true, at: iso(T0 + min(10)) }),
+      toString: sess({ id: 'toString', parent: 'cccc0000', project: 'p', conducted: true, at: iso(T0 + min(11)) }),
+    },
+    ledger: [], costs: [], transcripts: {},
+  });
+  const p = buildPayload(state, win);
+  assert.deepEqual(Object.keys(p.sessions).sort(), ['cccc0000', 'constructor', 'toString']);
+  assert.ok(p.links.some((l) => l.type === 'spawn' && l.to === 'constructor'));
+  s.cleanup();
+});

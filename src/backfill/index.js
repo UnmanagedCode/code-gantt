@@ -26,7 +26,7 @@ function validWake(w) {
 export function validCache(doc) {
   if (!isObj(doc) || doc.version !== VERSION || !isObj(doc.files)) return false;
   return Object.values(doc.files).every((f) => isObj(f) && num(f.size) && num(f.offset) && str(f.owner)
-    && isObj(f.pending) && Object.values(f.pending).every(validPending)
+    && (f.dropped === undefined || num(f.dropped)) && isObj(f.pending) && Object.values(f.pending).every(validPending)
     && Array.isArray(f.calls) && f.calls.every(validCall)
     && Array.isArray(f.wakes) && f.wakes.every(validWake));
 }
@@ -52,7 +52,9 @@ export class BackfillIndex {
   }
 
   status() {
-    return { ...this.progress };
+    // wake markers beyond the per-line caps (see extract.js), summed over the cached files
+    const droppedMarkers = Object.values(this.files).reduce((n, f) => n + (f.dropped ?? 0), 0);
+    return { ...this.progress, droppedMarkers };
   }
 
   persist() {
@@ -123,7 +125,7 @@ export class BackfillIndex {
     st.owner = owner;
     const r = await readFrom(path, st.offset, { filter: prefilter });
     if (r.missing) return;
-    if (r.reset) Object.assign(st, { pending: {}, calls: [], wakes: [] });
+    if (r.reset) Object.assign(st, { pending: {}, calls: [], wakes: [], dropped: 0 });
     this.progress.corrupt += r.corrupt.length;
     if (r.corrupt.length) console.warn(`[code-gantt] ${r.corrupt.length} corrupt line(s) in ${path} at byte ${r.corrupt.map((c) => c.byteOffset).join(',')}`);
     let wakeKeys = null; // built lazily, only when a wake arrives
@@ -133,10 +135,12 @@ export class BackfillIndex {
           const { k, ...rest } = ev;
           st.pending[ev.id] = rest;
         } else if (ev.k === 'result') {
+          if (!Object.hasOwn(st.pending, ev.id)) continue; // never an inherited member such as `constructor`
           const c = st.pending[ev.id];
-          if (!c) continue;
           delete st.pending[ev.id];
           st.calls.push({ ...c, ok: ev.ok });
+        } else if (ev.k === 'dropped') {
+          st.dropped = (st.dropped ?? 0) + ev.count;
         } else {
           wakeKeys ??= new Set(st.wakes.map((w) => w.key));
           if (wakeKeys.has(ev.key)) continue;

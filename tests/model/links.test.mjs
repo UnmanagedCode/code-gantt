@@ -133,11 +133,11 @@ test('C3: a backfilled wake straddling the cutoff is dropped in favour of its le
   assert.deepEqual(w.map((l) => [l.from, l.source]).sort(), [['wrk1', 'ledger'], ['wrk2', 'backfill']]);
 });
 
-test('C3: boundary matching is one-to-one: two backfilled calls near one ledger interaction leave one', () => {
+test('C3: boundary matching is one-to-one, nearest first: of two backfilled calls near one ledger interaction the nearer is its twin and the other stays', () => {
   const cut = T0 + min(50);
   const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })],
     backfill: { calls: [call({ id: 'a', ts: cut - 2000 }), call({ id: 'b', ts: cut - 9000 })], wakes: [] } });
-  assert.equal(r.links.filter((l) => l.type === 'send_prompt').length, 2);
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => [l.source, l.ts]), [['backfill', cut - 9000], ['ledger', cut]]);
 });
 
 test('C3: matching requires the same type and endpoints', () => {
@@ -150,4 +150,31 @@ test('C3: matching requires the same type and endpoints', () => {
 test('S2: a cached call tool outside the governed set is typed other, never passed through', () => {
   const r = run({ backfill: { calls: [call({ tool: '<img src=x onerror=alert(1)>' })], wakes: [] } });
   assert.deepEqual(r.links.filter((l) => l.source === 'backfill').map((l) => l.type), ['other']);
+});
+
+test('R5: tool names like Object.prototype members are typed other and counted exactly (no NaN or inherited counts)', () => {
+  const r = run({
+    ledger: [lev({ tool: 'constructor' }), lev({ tool: 'toString', ts: T0 + min(11) }), lev({ tool: 'constructor', ts: T0 + min(12) })],
+    backfill: { calls: [call({ tool: 'hasOwnProperty', ts: T0 + min(13) })], wakes: [] },
+  });
+  assert.deepEqual(Object.entries(r.unknownTools).sort(), [['constructor', 2], ['hasOwnProperty', 1], ['toString', 1]]);
+  assert.equal(r.links.filter((l) => l.type === 'other').length, 4);
+});
+
+test('R2: a genuine backfill call far before the cutoff is never eaten by ledger events that merely sit within 120 s', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut }), lev({ ts: cut + 10_000 })],
+    backfill: { calls: [call({ id: 'genuine', ts: cut - 100_000 })], wakes: [] } });
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => [l.source, l.ts]),
+    [['backfill', cut - 100_000], ['ledger', cut], ['ledger', cut + 10_000]]);
+});
+
+test('R2: only a backfill event just before the cutoff pairs with a ledger event just after it; a later ledger event cannot twin it', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut }), lev({ ts: cut + 20_000 })],
+    backfill: { calls: [call({ id: 'twin', ts: cut - 3000 })], wakes: [] } });
+  // the twin is dropped against the ledger event at the cutoff, nothing else is lost
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => l.source), ['ledger', 'ledger']);
+  const wide = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [call({ id: 'early', ts: cut - 60_000 })], wakes: [] } });
+  assert.equal(wide.links.filter((l) => l.source === 'backfill').length, 1, 'a call a minute before the cutoff is not a twin');
 });

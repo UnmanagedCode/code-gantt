@@ -2,7 +2,7 @@ import { svgEl, text, clear, listen } from '../lib/dom.js';
 import { ticks, zoomAt, pan } from '../lib/scale.js';
 import { ROW_H, HEADER_H } from '../lib/layout.js';
 import { fmtTime, fmtDuration, labelOf } from '../lib/format.js';
-import { END_LABEL } from './details.js';
+import { endLabel } from './details.js';
 
 export const LABEL_W = 250;
 export const AXIS_H = 30;
@@ -33,7 +33,7 @@ function linkLines(l, payload) {
 function barLines(s) {
   return [
     labelOf(s),
-    `${END_LABEL[s.endKind]}${s.endKind === 'approx' ? '' : s.endReason ? `: ${s.endReason}` : ''}`,
+    `${endLabel(s.endKind)}${s.endKind === 'approx' ? '' : s.endReason ? `: ${s.endReason}` : ''}`,
     `${fmtTime(s.start)} → ${s.end == null ? 'now' : fmtTime(s.end)}${s.end != null ? `  (${fmtDuration(s.end - s.start)})` : ''}`,
     `${s.turnCount} turns`,
   ];
@@ -94,7 +94,7 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     const x1 = X(s.end ?? payload.now);
     const w = Math.max(3, x1 - x0);
     const g = svgEl('g', { class: `bar-g${selectedId === s.id ? ' selected' : ''}${r.context ? ' context' : ''}`, 'data-id': s.id, role: 'button', tabindex: 0,
-      'aria-label': `${labelOf(s)}: ${END_LABEL[s.endKind]}` });
+      'aria-label': `${labelOf(s)}: ${endLabel(s.endKind)}` });
     g.appendChild(svgEl('rect', { class: `bar bar-${s.endKind}`, x: x0, y: r.y + 4, width: w, height: ROW_H - 8, rx: 4 }));
     for (const st of s.stages) {
       const sx = X(st.from);

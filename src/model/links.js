@@ -3,6 +3,9 @@ import { GOVERNED_TOOLS, OTHER_LINK_TYPE } from './linkTypes.js';
 
 const GOVERNED = new Set(GOVERNED_TOOLS);
 const DEDUPE_WINDOW_MS = 120_000;
+// The ledger entry follows its transcript line by moments, so a twin pair straddles the cutoff closely:
+// the backfill event within this window before it, the ledger event within it after.
+const BOUNDARY_WINDOW_MS = 30_000;
 const startOf = (rec) => Date.parse(rec.segments?.[0]?.at) || 0;
 
 /**
@@ -25,7 +28,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     for (const id of ids) treeOf.set(id, ids);
   }
   let unresolved = 0;
-  const unknownTools = {};
+  const unknownTools = new Map(); // tool names come from files: never a plain object
   const resolve = (raw, scopeId) => {
     const id = resolveId(raw, { byId, byBacking, scope: scopeId ? treeOf.get(scopeId) ?? null : null });
     if (!id) unresolved++;
@@ -45,7 +48,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   const backfillCands = []; // surviving backfill links, pending boundary dedupe
   const typeOfTool = (tool) => {
     if (GOVERNED.has(tool)) return tool;
-    unknownTools[tool ?? ''] = (unknownTools[tool ?? ''] ?? 0) + 1;
+    unknownTools.set(tool ?? '', (unknownTools.get(tool ?? '') ?? 0) + 1);
     return OTHER_LINK_TYPE;
   };
 
@@ -134,9 +137,12 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   // Boundary dedupe: the ledger entry is written after the transcript line, so a backfilled call or
   // wake just before the cutoff has a ledger twin (same type and endpoints, within the window).
   const twins = [];
+  const beforeCut = (b) => cutoffTs != null && b.ts < cutoffTs && b.ts >= cutoffTs - BOUNDARY_WINDOW_MS;
+  const afterCut = (l) => cutoffTs != null && l.ts >= cutoffTs && l.ts <= cutoffTs + BOUNDARY_WINDOW_MS;
   backfillCands.forEach((b, bi) => ledgerRefs.forEach((l, li) => {
+    if (!beforeCut(b) || !afterCut(l)) return; // only a straddling pair can be the same delivery
     const dt = Math.abs(b.ts - l.ts);
-    if (b.type === l.type && b.from === l.from && b.to === l.to && Boolean(b.heartbeat) === Boolean(l.heartbeat) && dt <= DEDUPE_WINDOW_MS) twins.push({ bi, li, dt });
+    if (b.type === l.type && b.from === l.from && b.to === l.to && Boolean(b.heartbeat) === Boolean(l.heartbeat) && dt <= BOUNDARY_WINDOW_MS) twins.push({ bi, li, dt });
   }));
   twins.sort((a, b) => a.dt - b.dt);
   const usedL = new Set();
@@ -149,5 +155,5 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   backfillCands.forEach((b, bi) => { if (!twinned.has(bi)) push(b); });
 
   links.sort((a, b) => a.ts - b.ts);
-  return { links, unresolved, unknownTools };
+  return { links, unresolved, unknownTools: Object.fromEntries(unknownTools) };
 }

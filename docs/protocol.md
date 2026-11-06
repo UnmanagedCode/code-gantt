@@ -24,7 +24,7 @@ All URLs are relative to the plugin root (cc proxies it under a path prefix). Ev
                     stages:[{stage,from,to|null,via?}], marks:[{at,kind:'retire'|'resume'}] } },
   links:[{ ts, type, from, to, source:'ledger'|'backfill', heartbeat? }],
   diagnostics:{ liveness:'ok'|'unavailable',
-                backfill:{state:'scanning'|'ready', filesDone, filesTotal, missing, corrupt},
+                backfill:{state:'scanning'|'ready', filesDone, filesTotal, missing, corrupt, droppedMarkers},
                 cutoff:iso|null, unresolved, unmatchedStoreRows:{ledger,costs}, unknownTools:{tool:n}, unknownKinds:{kind:n},
                 corruptLines, treeLoops, missing:[file], errors:[string] } }
 ```
@@ -61,7 +61,7 @@ Ids in any source may be public ids, backing (segment) ids, or prefixes; see [ar
 |---|---|
 | assistant `tool_use` named `mcp__code-conductor__<governed tool>` with `input.sessionId` | call (tool, target, optional `input.forward.sessionId`) |
 | user `tool_result` for a pending call | result: `ok:false` on `is_error` or JSON `ok:false` |
-| user line or `attachment` of type `queued_command` containing `[[cc:wake-callback]]Worker \`ID\` …` | wake. The header is the first line after the marker (cut at `[[cc:wake-body]]` or the next marker, at most 600 chars); `ID` must be 8-hex (optionally `-xxxx`) or a UUID; `did NOT finish` marks a heartbeat. At most 50 markers per line are considered. |
+| user line or `attachment` of type `queued_command` containing `[[cc:wake-callback]]Worker \`ID\` …` | wake. The header is the text after the marker up to `\n[[cc:wake-body]]` or the next marker, at most 8192 chars (cc's longest human-prompt note, decline note and stale note before the clause fit). The worker is the first `Worker \`ID\`` clause on a header line that does not start with `>` (quoted human prompts never supply it); `ID` must be 8-hex (optionally `-xxxx`) or a UUID. The heartbeat flag is set when `did NOT finish` directly follows that clause. At most 500 id-bearing markers per line are extracted and 2000 considered; the overflow is counted in `diagnostics.backfill.droppedMarkers`. |
 
 Only ids, tool, ts, heartbeat and ok are kept. A `tool_use` id must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`.
 

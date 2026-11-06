@@ -86,7 +86,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     return b.start <= to && (b.end ?? now) >= from;
   };
 
-  const sessions = {};
+  const sessions = new Map(); // keyed by ids from the store: never a plain object
   const projects = [];
   for (const g of groups) {
     const trees = [];
@@ -95,20 +95,20 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
       const rows = t.rows.filter((r) => r.context || overlaps(r.id));
       trees.push({ rootId: t.rootId, rows });
       for (const r of rows) {
-        if (sessions[r.id]) continue;
+        if (sessions.has(r.id)) continue;
         const rec = byId.get(r.id);
         const bar = barOf(r.id);
         const s = { ...bar, turns: clipTurns(bar.turns, from, to) };
         for (const k of ['title', 'project', 'worktree', 'parent']) if (rec[k] != null) s[k] = rec[k];
         if (rec.backend?.model) s.model = rec.backend.model;
         if (orphanRoots.has(r.id)) s.orphan = true;
-        sessions[r.id] = s;
+        sessions.set(r.id, s);
       }
     }
     if (trees.length) projects.push({ project: g.project, trees });
   }
 
-  const links = allLinks.filter((l) => l.ts >= from && l.ts <= to && sessions[l.from] && sessions[l.to]);
+  const links = allLinks.filter((l) => l.ts >= from && l.ts <= to && sessions.has(l.from) && sessions.has(l.to));
 
   const missing = [];
   if (state.sessions.missing) missing.push('sessions.json');
@@ -123,7 +123,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     version: state.version,
     linkTypes: LINK_TYPES,
     projects,
-    sessions,
+    sessions: Object.fromEntries(sessions),
     links,
     diagnostics: {
       liveness: state.liveSet ? 'ok' : 'unavailable',

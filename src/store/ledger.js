@@ -14,13 +14,18 @@ export class LedgerReader {
     this.lines = 0;
     this.events = [];
     this.cutoffTs = null;
-    this.unknownKinds = {};
+    this.unknown = new Map(); // a Map: kinds come from the file and may be named like Object.prototype members
     this.corruptLines = 0;
     this.missing = false;
     this.serialize = createSerializer();
   }
 
   /** @returns {Promise<object[]>} the events added by this pass */
+  /** Unknown kinds seen so far: `{kind: count}`. */
+  get unknownKinds() {
+    return Object.fromEntries(this.unknown);
+  }
+
   /** Serialised: concurrent calls run one after another, so no line is ever read twice. */
   refresh() {
     return this.serialize(() => this.#refresh());
@@ -33,7 +38,7 @@ export class LedgerReader {
       this.events = [];
       this.lines = 0;
       this.cutoffTs = null;
-      this.unknownKinds = {};
+      this.unknown = new Map();
       this.corruptLines = 0;
     }
     this.offset = r.offset;
@@ -47,7 +52,7 @@ export class LedgerReader {
       if (IGNORED.has(kind)) continue;
       if (!KEPT.has(kind)) {
         const k = String(kind);
-        this.unknownKinds[k] = (this.unknownKinds[k] ?? 0) + 1;
+        this.unknown.set(k, (this.unknown.get(k) ?? 0) + 1);
         continue;
       }
       const ev = { line, ts: Date.parse(value.ts), kind };

@@ -1,7 +1,8 @@
 import { el, clear } from '../lib/dom.js';
 import { fmtTime, labelOf } from '../lib/format.js';
 
-export const END_LABEL = { retired: 'retired', killed: 'killed', live: 'live', approx: '≈ approximate end' };
+const END_LABELS = new Map([['retired', 'retired'], ['killed', 'killed'], ['live', 'live'], ['approx', '≈ approximate end']]);
+export const endLabel = (kind) => END_LABELS.get(kind) ?? String(kind);
 
 function row(dt, dd) {
   return [el('dt', null, dt), el('dd', null, dd)];
@@ -24,7 +25,7 @@ export function renderDetails(host, s) {
     row('Worktree', s.worktree ?? '–'),
     row('Model', s.model ?? '–'),
     row('Playbook', s.playbook ?? '–'),
-    row('State', END_LABEL[s.endKind] ?? s.endKind),
+    row('State', endLabel(s.endKind)),
     row('Started', fmtTime(s.start)),
     row('Ended', end),
     row('Turns', String(s.turnCount)),

@@ -42,6 +42,7 @@ export function mount(root, api) {
       `unknown ledger kinds: ${Object.values(d.unknownKinds).reduce((a, b) => a + b, 0)}`,
       `unknown tools (shown as other): ${Object.values(d.unknownTools).reduce((a, b) => a + b, 0)}`,
       `corrupt lines: ${d.corruptLines}`,
+      d.backfill.droppedMarkers ? `dropped wake markers: ${d.backfill.droppedMarkers}` : null,
       d.missing.length ? `missing: ${d.missing.join(', ')}` : null,
       ...d.errors,
     ].filter(Boolean).join('  ·  ')));
@@ -63,7 +64,7 @@ export function mount(root, api) {
       onLeave: () => hideTooltip(svg),
       onView: (s) => { state.view = { from: s.from, to: s.to }; render(); },
     });
-    renderDetails(details, state.selected ? p.sessions[state.selected] ?? null : null);
+    renderDetails(details, state.selected && Object.hasOwn(p.sessions, state.selected) ? p.sessions[state.selected] : null);
   }
 
   async function load() {

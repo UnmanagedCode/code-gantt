@@ -6,10 +6,18 @@ const WAKE = '[[cc:wake-callback]]';
 const WAKE_BODY = '[[cc:wake-body]]';
 // Worker ids are 8-hex (optionally `-xxxx`) or a full UUID; anything else in backticks is not an id.
 const WORKER_RE = /Worker `([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{8}(?:-[0-9a-f]{4})?)`/;
-const HEARTBEAT_RE = /did NOT finish/;
-const HEADER_MAX = 600;
-const MAX_MARKERS_PER_LINE = 50;
-// starts alphanumeric so ids like __proto__ never become object keys
+// Longest stub text before the `Worker \`id\`` clause, from cc's builders (shared/wakeCallback.ts
+// buildWakeStub, src/promptAuthor.ts humanPromptsNote, src/idleSubscriptions.ts): the human note is a
+// ~260-char notice, a ~75-char omission line and up to 3 quoted prompts. Each prompt is cut at 500 code
+// points whose worst case is a newline each (`> ` + char + `\n` = 3 chars), plus a ~64-char cut suffix and
+// a `\n>\n` separator; the decline and stale notes add ~150 + ~140. Total ≈ 5.4k, rounded up.
+const HEADER_MAX = 8192;
+// Ids a fleet can really produce stay far below MAX_WAKES_PER_LINE; the considered cap bounds the work
+// that non-id markers can cause. Markers beyond either cap are counted, not silently lost.
+const MAX_WAKES_PER_LINE = 500;
+const MAX_MARKERS_CONSIDERED = 2000;
+// A quoted human line is always prefixed `>`, so a marker or clause inside one never ends/supplies a header.
+const BODY_CUT = `\n${WAKE_BODY}`;
 const CALL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** Text of a content value: string, or array of strings / {text} blocks. Never retained past the call. */
@@ -20,31 +28,45 @@ function textOf(content) {
 }
 
 /**
- * One forward pass: each marker's header is the first line after it, bounded to HEADER_MAX chars
- * and cut at a body or following marker. Every search is bounded, and at most MAX_MARKERS_PER_LINE
- * markers are considered, so a hostile line cannot make the scan quadratic.
+ * One forward pass over a line. A marker's header runs to the body separator or the next marker
+ * (at most HEADER_MAX chars). The worker is the first `Worker \`id\`` clause on a line of the header
+ * that is not `>`-quoted (quoted lines are the human's words); the heartbeat flag is taken from the
+ * words right after that clause. Every search is bounded, so a hostile line cannot make the scan
+ * quadratic. Markers beyond the caps are reported as one `dropped` event.
  */
 function wakes(text, line, ts) {
   const out = [];
   let from = 0;
   let n = 0;
-  for (let seen = 0; seen < MAX_MARKERS_PER_LINE; seen++) {
+  let considered = 0;
+  let dropped = 0;
+  for (;;) {
     const at = text.indexOf(WAKE, from);
     if (at < 0) break;
     const start = at + WAKE.length;
     from = start;
+    if (n >= MAX_WAKES_PER_LINE || considered >= MAX_MARKERS_CONSIDERED) {
+      dropped++;
+      continue;
+    }
+    considered++;
     const head = text.slice(start, start + HEADER_MAX);
     let end = head.length;
-    for (const stop of ['\n', WAKE_BODY, WAKE]) {
+    for (const stop of [BODY_CUT, WAKE]) {
       const i = head.indexOf(stop);
       if (i >= 0 && i < end) end = i;
     }
-    const m = WORKER_RE.exec(head.slice(0, end));
-    if (!m) continue;
-    const ev = { k: 'wake', key: `${line.uuid ?? ''}#${n++}`, ts, worker: m[1] };
-    if (HEARTBEAT_RE.test(head.slice(0, end))) ev.heartbeat = true;
-    out.push(ev);
+    for (const l of head.slice(0, end).split('\n')) {
+      if (l.startsWith('>')) continue;
+      const m = WORKER_RE.exec(l);
+      if (!m) continue;
+      const ev = { k: 'wake', key: `${line.uuid ?? ''}#${n++}`, ts, worker: m[1] };
+      if (l.startsWith(' did NOT finish', m.index + m[0].length)) ev.heartbeat = true;
+      out.push(ev);
+      break;
+    }
   }
+  if (dropped) out.push({ k: 'dropped', count: dropped });
   return out;
 }
 
@@ -62,7 +84,7 @@ function resultOk(block) {
 /**
  * Pure per-line extractor. Emits only allowlisted fields (ids, tool, ts, heartbeat, ok);
  * no prompt text, wake body or tool_result text survives.
- * @returns {({k:'call',id,ts,tool,target,forward?}|{k:'result',id,ok}|{k:'wake',key,ts,worker,heartbeat?})[]}
+ * @returns {({k:'call',id,ts,tool,target,forward?}|{k:'result',id,ok}|{k:'wake',key,ts,worker,heartbeat?}|{k:'dropped',count})[]}
  */
 export function extractLine(line) {
   if (!line || typeof line !== 'object') return [];

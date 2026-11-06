@@ -105,3 +105,11 @@ test('C5: concurrent refresh() calls on a one-line file yield exactly one event'
   assert.equal(added.flat().length, 1);
   s.cleanup();
 });
+
+test('R5: unknown kinds named like Object.prototype members are counted as plain keys, not as inherited values', async () => {
+  const s = makeStore({ ledger: [ev({ kind: 'constructor' }), ev({ kind: 'toString' }), ev({ kind: 'constructor' }), ev({ kind: '__proto__' })] });
+  const r = new LedgerReader(s.files.ledger);
+  await r.refresh();
+  assert.deepEqual(Object.entries(r.unknownKinds).sort(), [['__proto__', 1], ['constructor', 2], ['toString', 1]]);
+  s.cleanup();
+});
