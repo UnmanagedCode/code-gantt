@@ -8,7 +8,7 @@ import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 import { createApp } from '../../src/http/app.js';
 
-async function boot() {
+async function boot({ maxStreams } = {}) {
   const s = makeStore({
     sessions: { c: sess({ id: 'c' }), w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true, at: iso(Date.now() - min(5)) }) },
     ledger: [{ ts: iso(Date.now() - min(4)), kind: 'spawn', sessionId: 'w', stage: 'plan' }],
@@ -23,7 +23,7 @@ async function boot() {
   const live = createLive({ state, config: state.config, schedule: () => () => {} });
   await live.start();
   await state.refreshStores();
-  const server = http.createServer(createApp({ state, live, publicDir: pub }));
+  const server = http.createServer(createApp({ state, live, publicDir: pub, maxStreams }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   return { s, state, live, server, port, url: `http://127.0.0.1:${port}`, close: async () => { server.closeAllConnections(); await new Promise((r) => server.close(r)); live.stop(); s.cleanup(); } };
@@ -91,5 +91,38 @@ test('api/stream emits the current version, then a new one after a ledger append
   const v1 = await nextVersion();
   assert.ok(v1 > v0);
   ctl.abort();
+  await b.close();
+});
+
+test('S6: concurrent SSE clients are capped (503 over the cap) and a closed client frees its slot', async () => {
+  const b = await boot({ maxStreams: 2 });
+  const ctls = [new AbortController(), new AbortController()];
+  const open = await Promise.all(ctls.map((c) => fetch(`${b.url}/api/stream`, { signal: c.signal })));
+  assert.deepEqual(open.map((r) => r.status), [200, 200]);
+  const over = await fetch(`${b.url}/api/stream`);
+  assert.equal(over.status, 503);
+  assert.equal(over.headers.get('x-content-type-options'), 'nosniff');
+  ctls[0].abort();
+  let status = 503;
+  for (let i = 0; i < 40 && status === 503; i++) {
+    const c = new AbortController();
+    status = (await fetch(`${b.url}/api/stream`, { signal: c.signal })).status;
+    c.abort();
+    if (status === 503) await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.equal(status, 200);
+  ctls[1].abort();
+  await b.close();
+});
+
+test('S6: HEAD /api/stream ends promptly with the event-stream headers and holds no slot; other methods are 405', async () => {
+  const b = await boot({ maxStreams: 1 });
+  const head = await fetch(`${b.url}/api/stream`, { method: 'HEAD', signal: AbortSignal.timeout(2000) });
+  assert.equal(head.status, 200);
+  assert.match(head.headers.get('content-type'), /text\/event-stream/);
+  const ctl = new AbortController();
+  assert.equal((await fetch(`${b.url}/api/stream`, { signal: ctl.signal })).status, 200);
+  ctl.abort();
+  assert.equal((await fetch(`${b.url}/api/stream`, { method: 'DELETE' })).status, 405);
   await b.close();
 });

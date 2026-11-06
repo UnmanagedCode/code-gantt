@@ -32,8 +32,12 @@ function parseWindow(params) {
   return out;
 }
 
-export function createApp({ state, live, publicDir, now = Date.now }) {
+const MAX_STREAMS = 32;
+
+export function createApp({ state, live, publicDir, now = Date.now, maxStreams = MAX_STREAMS }) {
   const files = staticAllowlist(publicDir);
+  let streams = 0;
+  live.events.setMaxListeners(maxStreams + 5); // one listener per SSE client
 
   return function handler(req, res) {
     res.setHeader('Content-Security-Policy', CSP);
@@ -54,11 +58,21 @@ export function createApp({ state, live, publicDir, now = Date.now }) {
         return send(200, JSON.stringify(buildPayload(state, { ...win, now: now() })), 'application/json');
       }
       if (p === '/api/stream') {
-        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+        const headers = { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' };
+        if (req.method === 'HEAD') {
+          res.writeHead(200, headers);
+          return res.end();
+        }
+        if (streams >= maxStreams) return send(503, 'Too many streams');
+        streams++;
+        res.writeHead(200, { ...headers, Connection: 'keep-alive' });
         const write = (v) => res.write(`data: ${JSON.stringify({ version: v })}\n\n`);
         write(state.version);
         live.events.on('changed', write);
-        res.on('close', () => live.events.off('changed', write));
+        res.on('close', () => {
+          streams--;
+          live.events.off('changed', write);
+        });
         return undefined;
       }
 
