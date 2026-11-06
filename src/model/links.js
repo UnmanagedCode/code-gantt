@@ -41,6 +41,8 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   // candidate stage-moving transitions and the interactions that may duplicate them
   const transitions = [];
   const candidates = []; // {link, target, tool}
+  const ledgerRefs = []; // ledger interaction/wake links a backfilled twin may duplicate
+  const backfillCands = []; // surviving backfill links, pending boundary dedupe
   const typeOfTool = (tool) => {
     if (GOVERNED.has(tool)) return tool;
     unknownTools[tool ?? ''] = (unknownTools[tool ?? ''] ?? 0) + 1;
@@ -77,7 +79,9 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
       const worker = resolve(ev.sessionId);
       const cond = resolve(ev.conductorSessionId, worker);
       if (!worker || !cond) continue;
-      push({ ts: ev.ts, type: 'wake', from: worker, to: cond, source: 'ledger', ...(ev.heartbeat ? { heartbeat: true } : {}) });
+      const link = { ts: ev.ts, type: 'wake', from: worker, to: cond, source: 'ledger', ...(ev.heartbeat ? { heartbeat: true } : {}) };
+      push(link);
+      ledgerRefs.push(link);
     }
   }
 
@@ -87,7 +91,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     const to = resolve(c.target, c.owner);
     if (!to) continue;
     let from = resolve(c.owner);
-    let type = c.tool;
+    let type = typeOfTool(c.tool); // cached values are untrusted: anything ungoverned is `other`
     if (c.forward) {
       from = resolve(c.forward, c.owner);
       type = 'forward';
@@ -100,7 +104,7 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     const worker = resolve(w.worker, w.owner);
     const owner = resolve(w.owner);
     if (!worker || !owner) continue;
-    push({ ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) });
+    backfillCands.push({ ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) });
   }
 
   // one-to-one nearest-first transition dedupe
@@ -117,7 +121,32 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
     usedT.add(p.ti);
     dropped.add(p.ci);
   }
-  candidates.forEach((c, ci) => { if (!dropped.has(ci)) push(c.link); });
+  candidates.forEach((c, ci) => {
+    if (dropped.has(ci)) return;
+    if (c.link.source === 'ledger') {
+      push(c.link);
+      ledgerRefs.push(c.link);
+    } else {
+      backfillCands.push(c.link);
+    }
+  });
+
+  // Boundary dedupe: the ledger entry is written after the transcript line, so a backfilled call or
+  // wake just before the cutoff has a ledger twin (same type and endpoints, within the window).
+  const twins = [];
+  backfillCands.forEach((b, bi) => ledgerRefs.forEach((l, li) => {
+    const dt = Math.abs(b.ts - l.ts);
+    if (b.type === l.type && b.from === l.from && b.to === l.to && Boolean(b.heartbeat) === Boolean(l.heartbeat) && dt <= DEDUPE_WINDOW_MS) twins.push({ bi, li, dt });
+  }));
+  twins.sort((a, b) => a.dt - b.dt);
+  const usedL = new Set();
+  const twinned = new Set();
+  for (const t of twins) {
+    if (usedL.has(t.li) || twinned.has(t.bi)) continue;
+    usedL.add(t.li);
+    twinned.add(t.bi);
+  }
+  backfillCands.forEach((b, bi) => { if (!twinned.has(bi)) push(b); });
 
   links.sort((a, b) => a.ts - b.ts);
   return { links, unresolved, unknownTools };

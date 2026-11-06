@@ -107,3 +107,47 @@ test('a ledger interaction with an unknown tool renders as type other and is cou
   assert.deepEqual(r.links.filter((l) => l.type === 'other').map((l) => [l.from, l.to]), [['cond', 'wrk1'], ['cond', 'wrk1'], ['cond', 'wrk1']]);
   assert.deepEqual(r.unknownTools, { frobnicate: 2, mystery: 1 });
 });
+
+test('C3: a backfilled call straddling the cutoff is dropped in favour of its ledger twin; a distinct call stays', () => {
+  const cut = T0 + min(50);
+  const r = run({
+    cutoffTs: cut,
+    ledger: [lev({ ts: cut })],
+    backfill: { calls: [call({ id: 'twin', ts: cut - 4000 }), call({ id: 'distinct', ts: cut - min(30) })], wakes: [] },
+  });
+  const sp = r.links.filter((l) => l.type === 'send_prompt');
+  assert.deepEqual(sp.map((l) => [l.source, l.ts]), [['backfill', cut - min(30)], ['ledger', cut]]);
+});
+
+test('C3: a backfilled wake straddling the cutoff is dropped in favour of its ledger twin; wakes of other workers stay', () => {
+  const cut = T0 + min(50);
+  const r = run({
+    cutoffTs: cut,
+    ledger: [{ line: 1, ts: cut, kind: 'wake', sessionId: 'wrk1', conductorSessionId: 'cond' }],
+    backfill: { calls: [], wakes: [
+      { key: 'a#0', ts: cut - 3000, worker: 'wrk1', owner: 'cond' },
+      { key: 'b#0', ts: cut - 3000, worker: 'wrk2', owner: 'cond' },
+    ] },
+  });
+  const w = r.links.filter((l) => l.type === 'wake');
+  assert.deepEqual(w.map((l) => [l.from, l.source]).sort(), [['wrk1', 'ledger'], ['wrk2', 'backfill']]);
+});
+
+test('C3: boundary matching is one-to-one: two backfilled calls near one ledger interaction leave one', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })],
+    backfill: { calls: [call({ id: 'a', ts: cut - 2000 }), call({ id: 'b', ts: cut - 9000 })], wakes: [] } });
+  assert.equal(r.links.filter((l) => l.type === 'send_prompt').length, 2);
+});
+
+test('C3: matching requires the same type and endpoints', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })],
+    backfill: { calls: [call({ id: 'a', ts: cut - 2000, tool: 'approve_plan' }), call({ id: 'b', ts: cut - 2000, target: 'wrk2' })], wakes: [] } });
+  assert.equal(r.links.filter((l) => l.source === 'backfill').length, 2);
+});
+
+test('S2: a cached call tool outside the governed set is typed other, never passed through', () => {
+  const r = run({ backfill: { calls: [call({ tool: '<img src=x onerror=alert(1)>' })], wakes: [] } });
+  assert.deepEqual(r.links.filter((l) => l.source === 'backfill').map((l) => l.type), ['other']);
+});
