@@ -6,6 +6,7 @@ const POLL_MS = 5000;
 const DEBOUNCE_MS = 500;
 const BACKOFF_START_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
+const LIVENESS_TIMEOUT_MS = 3000;
 const DEAD_STATUSES = new Set(['exited', 'crashed']);
 
 const defaultSchedule = (fn, ms) => {
@@ -41,7 +42,21 @@ async function statSig(files) {
  * and fetches liveness from GET /api/instances. Network, timers and the clock are injectable.
  * The ws client never sends frames.
  */
-export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch, connect = defaultConnect, schedule = defaultSchedule }) {
+/** The base URL when `raw` is a well-formed http(s) URL, else null. */
+function baseUrl(raw) {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.origin + u.pathname.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch, connect = defaultConnect, schedule = defaultSchedule, livenessTimeoutMs = LIVENESS_TIMEOUT_MS }) {
+  const base = baseUrl(config.conductorUrl);
+  if (config.conductorUrl && !base) console.warn('[code-gantt] CONDUCTOR_URL is not a valid http(s) URL: ignoring it, liveness unavailable');
   const events = new EventEmitter();
   state.onVersion = (v) => events.emit('changed', v);
   const storeFiles = ['sessions.json', 'playbook-ledger.jsonl', 'costs.jsonl'].map((f) => path.join(config.storeDir, f));
@@ -57,14 +72,14 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
   let polling = null;
 
   async function refreshLiveness() {
-    if (!config.conductorUrl) {
-      if (!loggedNoLiveness) console.warn('[code-gantt] CONDUCTOR_URL not set: liveness unavailable, no bar is open-ended');
+    if (!base) {
+      if (!config.conductorUrl && !loggedNoLiveness) console.warn('[code-gantt] CONDUCTOR_URL not set: liveness unavailable, no bar is open-ended');
       loggedNoLiveness = true;
       state.liveSet = null;
       return;
     }
     try {
-      const res = await fetchImpl(`${config.conductorUrl.replace(/\/$/, '')}/api/instances`);
+      const res = await fetchImpl(`${base}/api/instances`, { signal: AbortSignal.timeout(livenessTimeoutMs) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const rows = await res.json();
       state.liveSet = new Set(rows.filter((r) => r && typeof r.sessionId === 'string' && !DEAD_STATUSES.has(r.status)).map((r) => r.sessionId));
@@ -125,37 +140,49 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
       .finally(() => { if (!stopped) cancelPoll = schedule(tick, POLL_MS); });
   }
 
+  function reconnectLater() {
+    if (stopped) return;
+    const delay = backoff;
+    backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+    cancelReconnect = schedule(openSocket, delay);
+  }
+
   function openSocket() {
-    if (stopped || !config.conductorUrl) return;
-    const url = `${config.conductorUrl.replace(/^http/, 'ws').replace(/\/$/, '')}/ws`;
-    socket = connect(url, {
-      onOpen: () => { backoff = BACKOFF_START_MS; },
-      onMessage: (data) => {
-        let msg;
-        try { msg = JSON.parse(data); } catch { return; }
-        if (msg?.t !== 'instances') return;
-        cancelDebounce?.();
-        cancelDebounce = schedule(async () => {
-          await refreshLiveness();
-          await poll().catch((err) => console.error('[code-gantt] poll failed:', err));
-          state.bump();
-        }, DEBOUNCE_MS);
-      },
-      onClose: () => {
-        if (stopped) return;
-        const delay = backoff;
-        backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
-        cancelReconnect = schedule(openSocket, delay);
-      },
-    });
+    if (stopped || !base) return;
+    const url = `${base.replace(/^http/, 'ws')}/ws`;
+    try {
+      socket = connect(url, {
+        onOpen: () => { backoff = BACKOFF_START_MS; },
+        onMessage: (data) => {
+          let msg;
+          try { msg = JSON.parse(data); } catch { return; }
+          if (msg?.t !== 'instances') return;
+          cancelDebounce?.();
+          cancelDebounce = schedule(async () => {
+            await refreshLiveness();
+            await poll().catch((err) => console.error('[code-gantt] poll failed:', err));
+            state.bump();
+          }, DEBOUNCE_MS);
+        },
+        onClose: reconnectLater,
+      });
+    } catch (err) {
+      console.warn(`[code-gantt] ws connect failed: ${err.message}`);
+      reconnectLater();
+    }
   }
 
   return {
     events,
     poll,
     refreshLiveness,
+    /** Captures the store signature; call before the first refreshStores so no change is missed. */
+    async init() {
+      lastSig ??= await statSig(storeFiles);
+    },
+    /** Liveness, ws and the poll loop. Never awaited before the server listens. */
     async start() {
-      lastSig = await statSig(storeFiles);
+      lastSig ??= await statSig(storeFiles);
       await refreshLiveness();
       openSocket();
       cancelPoll = schedule(tick, POLL_MS);

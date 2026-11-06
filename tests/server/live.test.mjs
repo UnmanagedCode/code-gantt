@@ -6,7 +6,7 @@ import { createLive } from '../../src/live.js';
 
 const POLL_MS = 5000;
 
-function rig({ conductorUrl = 'http://cc.test', rows = [], fetchFails = false } = {}) {
+function rig({ conductorUrl = 'http://cc.test', rows = [], fetchFails = false, connectThrows = false, fetchImpl: customFetch, timeoutMs } = {}) {
   const s = makeStore({
     sessions: { c: sess({ id: 'c' }), w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true }) },
     ledger: [{ ts: iso(T0), kind: 'spawn', sessionId: 'w', stage: 'plan' }],
@@ -16,17 +16,20 @@ function rig({ conductorUrl = 'http://cc.test', rows = [], fetchFails = false } 
   const schedule = (fn, ms) => { const t = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
   const fire = (ms) => { const t = timers.filter((x) => !x.cancelled && x.ms === ms).pop(); assert.ok(t, `no timer for ${ms}`); t.cancelled = true; return t.fn(); };
   const sockets = [];
-  const connect = (url, h) => { const sock = { url, h, closed: false, close() { this.closed = true; } }; sockets.push(sock); return sock; };
+  const connect = (url, h) => {
+    if (connectThrows) throw new Error('bad ws url'); const sock = { url, h, closed: false, close() { this.closed = true; } }; sockets.push(sock); return sock; };
   const fetchCalls = [];
-  const fetchImpl = async (url) => {
+  const fetchOpts = [];
+  const fetchImpl = customFetch ?? (async (url, opts) => {
     fetchCalls.push(url);
+    fetchOpts.push(opts);
     if (fetchFails) throw new Error('ECONNREFUSED');
     return { ok: true, json: async () => rows };
-  };
-  const live = createLive({ state, config: state.config, fetch: fetchImpl, connect, schedule });
+  });
+  const live = createLive({ state, config: state.config, fetch: fetchImpl, connect, schedule, livenessTimeoutMs: timeoutMs });
   const changes = [];
   live.events.on('changed', (v) => changes.push(v));
-  return { s, state, live, timers, fire, sockets, fetchCalls, changes };
+  return { s, state, live, timers, fire, sockets, fetchCalls, fetchOpts, changes };
 }
 
 test('an instances hint re-fetches liveness and emits changed once (debounced)', async () => {
@@ -119,5 +122,37 @@ test('C5: a change landing during a poll triggers a follow-up poll, not a lost u
   r.s.appendLedger({ ts: iso(T0 + min(3)), kind: 'resume', sessionId: 'w' });
   await Promise.all([p1, r.live.poll()]);
   assert.equal(r.state.ledger.events.length, base + 2);
+  r.live.stop(); r.s.cleanup();
+});
+
+test('S1: the liveness fetch carries an abort signal and a hung conductor degrades to unavailable', async () => {
+  const hung = (url, opts) => new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(new Error('timed out'))));
+  const r = rig({ fetchImpl: hung, timeoutMs: 20 });
+  await r.live.start();
+  assert.equal(r.state.liveSet, null);
+  const ok = rig({ rows: [] });
+  await ok.live.start();
+  assert.ok(ok.fetchOpts[0].signal instanceof AbortSignal);
+  for (const x of [r, ok]) { x.live.stop(); x.s.cleanup(); }
+});
+
+test('S1: a malformed or non-http(s) CONDUCTOR_URL is ignored: no throw, no connect, no fetch, unavailable', async () => {
+  for (const url of ['not a url', 'ftp://cc.test', 'ws://cc.test', 'http://']) {
+    const r = rig({ conductorUrl: url });
+    await r.live.start();
+    assert.equal(r.state.liveSet, null, url);
+    assert.equal(r.sockets.length, 0, url);
+    assert.equal(r.fetchCalls.length, 0, url);
+    r.live.stop(); r.s.cleanup();
+  }
+});
+
+test('S1: a throwing ws constructor schedules a reconnect with backoff instead of crashing, on every attempt', async () => {
+  const r = rig({ connectThrows: true });
+  await r.live.start();
+  const retry = () => r.timers.filter((x) => !x.cancelled && x.ms !== POLL_MS).pop();
+  assert.equal(retry().ms, 500);
+  await r.fire(500);
+  assert.equal(retry().ms, 1000);
   r.live.stop(); r.s.cleanup();
 });

@@ -16,7 +16,7 @@ try {
 
 const state = createState(config);
 const live = createLive({ state, config });
-await live.start();
+await live.init(); // stat signature first, so a change during the initial read is picked up by the next poll
 await state.refreshStores();
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
@@ -24,6 +24,8 @@ const server = http.createServer(createApp({ state, live, publicDir }));
 const port = Number(process.env.PORT) || 7300;
 server.listen(port, '127.0.0.1', () => {
   console.log(`[code-gantt] listening on http://127.0.0.1:${port}`);
+  // Live wiring (liveness fetch, /ws, polling) starts only after the server is accepting requests.
+  live.start().catch((err) => console.error('[code-gantt] live refresh failed to start:', err));
   state.runBackfill().catch((err) => console.error('[code-gantt] backfill failed:', err));
 });
 
