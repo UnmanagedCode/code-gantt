@@ -124,14 +124,15 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     plot.appendChild(g);
   }
 
-  // links: a vertical connector at the event time, with an end dot on the target row
+  // links: a vertical connector at the event time, with an end dot on the target row.
+  // Only the dot takes pointer events, so a connector never blocks clicks on the bars it crosses.
   const linkLayer = svgEl('g', { class: 'links' });
   for (const l of layout.links) {
     const x = X(l.ts);
     const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type, 'data-source': l.source });
     lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
     lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: l.y2, r: 3.5 }));
-    lg.appendChild(svgEl('line', { class: 'link-hit', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
+    lg.appendChild(svgEl('circle', { class: 'link-hit', cx: x, cy: l.y2, r: 7 }));
     const at = (e) => { const b = svg.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
     listen(lg, 'mousemove', (e) => onHover(linkLines(l, payload), ...at(e)));
     listen(lg, 'mouseleave', () => onLeave());
