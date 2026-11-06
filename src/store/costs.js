@@ -1,4 +1,5 @@
 import { readFrom } from '../jsonlTail.js';
+import { createSerializer } from '../serial.js';
 
 /** Incremental reader of costs.jsonl → per-session turn intervals. */
 export class CostsReader {
@@ -8,9 +9,15 @@ export class CostsReader {
     this.turnsBySession = new Map();
     this.corruptLines = 0;
     this.missing = false;
+    this.serialize = createSerializer();
   }
 
-  async refresh() {
+  /** Serialised: concurrent calls run one after another, so no row is ever read twice. */
+  refresh() {
+    return this.serialize(() => this.#refresh());
+  }
+
+  async #refresh() {
     const r = await readFrom(this.file, this.offset);
     this.missing = r.missing;
     if (r.reset) {

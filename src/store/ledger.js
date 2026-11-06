@@ -1,4 +1,5 @@
 import { readFrom } from '../jsonlTail.js';
+import { createSerializer } from '../serial.js';
 
 const KEPT = new Set(['spawn', 'transition', 'retire', 'resume', 'interaction', 'wake']);
 const IGNORED = new Set(['refusal', 'enforcement']);
@@ -16,10 +17,16 @@ export class LedgerReader {
     this.unknownKinds = {};
     this.corruptLines = 0;
     this.missing = false;
+    this.serialize = createSerializer();
   }
 
   /** @returns {Promise<object[]>} the events added by this pass */
-  async refresh() {
+  /** Serialised: concurrent calls run one after another, so no line is ever read twice. */
+  refresh() {
+    return this.serialize(() => this.#refresh());
+  }
+
+  async #refresh() {
     const r = await readFrom(this.file, this.offset);
     this.missing = r.missing;
     if (r.reset) {

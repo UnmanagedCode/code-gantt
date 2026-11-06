@@ -89,7 +89,25 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
       })).then((flags) => flags.some(Boolean));
   }
 
-  async function poll() {
+  // One poll at a time. A call made mid-poll waits for the current run, and a follow-up run is
+  // queued so a change that landed meanwhile is not lost.
+  let inflight = null;
+  let again = false;
+  function poll() {
+    if (inflight) {
+      again = true;
+      return inflight;
+    }
+    inflight = (async () => {
+      do {
+        again = false;
+        await pollOnce();
+      } while (again);
+    })().finally(() => { inflight = null; });
+    return inflight;
+  }
+
+  async function pollOnce() {
     const sig = await statSig(storeFiles);
     const storeChanged = sig !== lastSig;
     lastSig = sig;

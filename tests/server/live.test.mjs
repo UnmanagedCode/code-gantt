@@ -92,3 +92,32 @@ test('an unreachable instances endpoint leaves liveness unavailable', async () =
   assert.equal(r.state.liveSet, null);
   r.live.stop(); r.s.cleanup();
 });
+
+test('C5: a poll issued while another is in flight waits for it and sees the data; no duplicates result', async () => {
+  const r = rig({ conductorUrl: '' });
+  await r.live.start();
+  await r.state.refreshStores();
+  const base = r.state.ledger.events.length;
+  r.s.appendLedger({ ts: iso(T0 + min(2)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  const p1 = r.live.poll();
+  const p2 = r.live.poll();
+  await p2;
+  assert.equal(r.state.ledger.events.length, base + 1);
+  await p1;
+  await Promise.all([r.state.refreshStores(), r.state.refreshStores()]);
+  assert.equal(r.state.ledger.events.length, base + 1);
+  r.live.stop(); r.s.cleanup();
+});
+
+test('C5: a change landing during a poll triggers a follow-up poll, not a lost update', async () => {
+  const r = rig({ conductorUrl: '' });
+  await r.live.start();
+  await r.state.refreshStores();
+  const base = r.state.ledger.events.length;
+  r.s.appendLedger({ ts: iso(T0 + min(2)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  const p1 = r.live.poll();
+  r.s.appendLedger({ ts: iso(T0 + min(3)), kind: 'resume', sessionId: 'w' });
+  await Promise.all([p1, r.live.poll()]);
+  assert.equal(r.state.ledger.events.length, base + 2);
+  r.live.stop(); r.s.cleanup();
+});

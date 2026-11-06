@@ -58,3 +58,11 @@ test('file shrink resets accumulated state', async () => {
   assert.equal(r.turnsBySession.get('z').length, 1);
   s.cleanup();
 });
+
+test('C5: concurrent refresh() calls on a one-row file yield exactly one turn', async () => {
+  const s = makeStore({ costs: [{ ts: 5, sessionId: 'a' }] });
+  const r = new CostsReader(s.files.costs);
+  await Promise.all([r.refresh(), r.refresh(), r.refresh()]);
+  assert.equal(r.turnsBySession.get('a').length, 1);
+  s.cleanup();
+});

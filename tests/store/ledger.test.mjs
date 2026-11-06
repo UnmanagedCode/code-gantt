@@ -96,3 +96,12 @@ test('missing file yields empty data plus missing; corrupt non-trailing line cou
   assert.deepEqual(m.events, []);
   s.cleanup();
 });
+
+test('C5: concurrent refresh() calls on a one-line file yield exactly one event', async () => {
+  const s = makeStore({ ledger: [ev({ kind: 'spawn', sessionId: 'a' })] });
+  const r = new LedgerReader(s.files.ledger);
+  const added = await Promise.all([r.refresh(), r.refresh(), r.refresh()]);
+  assert.equal(r.events.length, 1);
+  assert.equal(added.flat().length, 1);
+  s.cleanup();
+});

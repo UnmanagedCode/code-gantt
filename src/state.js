@@ -4,6 +4,7 @@ import { LedgerReader } from './store/ledger.js';
 import { CostsReader } from './store/costs.js';
 import { BackfillIndex } from './backfill/index.js';
 import { createDataDir } from './dataDir.js';
+import { createSerializer } from './serial.js';
 
 const VERSION_EVERY_N_FILES = 25;
 
@@ -11,6 +12,7 @@ const VERSION_EVERY_N_FILES = 25;
 export function createState(config) {
   const dataDir = createDataDir(config.dataDir);
   dataDir.ensure();
+  const serialize = createSerializer();
   const state = {
     config,
     sessions: null,
@@ -24,10 +26,12 @@ export function createState(config) {
       state.version++;
       state.onVersion?.(state.version);
     },
-    async refreshStores() {
-      state.sessions = await loadSessions(config.storeDir, state.sessions);
-      await state.ledger.refresh();
-      await state.costs.refresh();
+    refreshStores() {
+      return serialize(async () => {
+        state.sessions = await loadSessions(config.storeDir, state.sessions);
+        await state.ledger.refresh();
+        await state.costs.refresh();
+      });
     },
     /** Background backfill; bumps the version every few files and at the end. */
     async runBackfill() {
