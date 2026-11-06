@@ -47,7 +47,11 @@ export class BackfillIndex {
     this.running = null;
     this.rerun = false;
     this.latest = null;
-    dataDir.remove(LEGACY_CACHE);
+    try {
+      dataDir.remove(LEGACY_CACHE); // best effort: a directory or an outside symlink there must not stop the boot
+    } catch (err) {
+      console.warn(`[code-gantt] could not remove the legacy cache ${LEGACY_CACHE}: ${err.message}`);
+    }
     const cached = dataDir.readJson(CACHE);
     if (validCache(cached)) this.files = cached.files;
     else if (cached) console.warn('[code-gantt] backfill cache invalid or wrong version; rebuilding');

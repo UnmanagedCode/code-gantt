@@ -29,9 +29,11 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   }
   let unresolved = 0;
   const unknownTools = new Map(); // tool names come from files: never a plain object
-  const resolve = (raw, scopeId) => {
+  // `count: false` resolves without touching the diagnostic (events the cutoff will drop anyway: their
+  // ledger counterpart already counts the same id).
+  const resolve = (raw, scopeId, count = true) => {
     const id = resolveId(raw, { byId, byBacking, scope: scopeId ? treeOf.get(scopeId) ?? null : null });
-    if (!id) unresolved++;
+    if (!id && count) unresolved++;
     return id;
   };
   const links = [];
@@ -91,25 +93,35 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   // A backfilled call's `ts` is its tool_use line (before the handler runs, minutes before for a parked
   // send_prompt); its `rts` is the tool_result line, written after the handler like the ledger entry. All
   // cutoff and twin decisions use `et` = rts when known, so they do not depend on how long the handler took.
+  const afterCutoff = (et) => cutoffTs != null && et >= cutoffTs;
   for (const c of backfill.calls) {
     if (!c.ok) continue;
-    const to = resolve(c.target, c.owner);
+    const et = c.rts ?? c.ts;
+    // cc appends the ledger entry before the result line is written, so a call whose result is known and
+    // landed at or after the cutoff always has its ledger entry: drop it before resolving anything.
+    if (c.rts !== undefined && afterCutoff(et)) continue;
+    const count = !afterCutoff(et); // only a call without a result time can still reach here after the cutoff
+    const to = resolve(c.target, c.owner, count);
     if (!to) continue;
-    let from = resolve(c.owner);
+    let from = resolve(c.owner, undefined, count);
     let type = typeOfTool(c.tool); // cached values are untrusted: anything ungoverned is `other`
     if (c.forward) {
-      from = resolve(c.forward, c.owner);
+      from = resolve(c.forward, c.owner, count);
       type = 'forward';
     }
     if (!from) continue;
-    candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool, et: c.rts ?? c.ts });
+    // Without a result time the tool_use time may precede the handler by minutes, so such a call can only
+    // be matched to a ledger twin by pairing; with one, the cutoff rule above is exact and pairing would
+    // only risk eating a genuine call.
+    candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool, et, pairable: c.rts === undefined });
   }
   for (const w of backfill.wakes) {
-    const worker = resolve(w.worker, w.owner);
-    const owner = resolve(w.owner);
+    const count = !afterCutoff(w.ts);
+    const worker = resolve(w.worker, w.owner, count);
+    const owner = resolve(w.owner, undefined, count);
     if (!worker || !owner) continue;
-    // wakes have no result line: their transcript time is all there is
-    backfillCands.push({ link: { ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) }, et: w.ts });
+    // wakes have no result line: their transcript time is all there is, so they are matched by pairing
+    backfillCands.push({ link: { ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) }, et: w.ts, pairable: true });
   }
 
   // one-to-one nearest-first transition dedupe
@@ -132,19 +144,19 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
       push(c.link);
       ledgerRefs.push(c.link);
     } else {
-      backfillCands.push({ link: c.link, et: c.et });
+      backfillCands.push({ link: c.link, et: c.et, pairable: c.pairable });
     }
   });
 
   // Cutoff: the ledger is authoritative from its first interaction|wake. A backfill event that completed
   // at or after the cutoff is the ledger's; one that completed before it is kept, unless it is the twin of
-  // a ledger entry written just after the cutoff (the entry follows the handler by moments). Twins are
-  // paired one-to-one nearest first over every backfill event near the cutoff, including those the cutoff
-  // would drop, so a genuine same-key event just before the cutoff cannot steal a ledger entry from its twin.
+  // a ledger entry written just after the cutoff. Twin pairing is one-to-one, nearest first, and applies
+  // only to events whose time precedes their ledger entry by an unknown skew: wakes (transcript time) and
+  // calls without a result time.
   const near = new Set();
   if (cutoffTs != null) {
     const poolBf = [];
-    backfillCands.forEach((b, bi) => { if (b.et >= cutoffTs - BOUNDARY_WINDOW_MS && b.et <= cutoffTs + BOUNDARY_WINDOW_MS) poolBf.push(bi); });
+    backfillCands.forEach((b, bi) => { if (b.pairable && b.et >= cutoffTs - BOUNDARY_WINDOW_MS && b.et <= cutoffTs + BOUNDARY_WINDOW_MS) poolBf.push(bi); });
     const poolLd = ledgerRefs.filter((l) => l.ts >= cutoffTs && l.ts <= cutoffTs + 2 * BOUNDARY_WINDOW_MS);
     const twins = [];
     for (const bi of poolBf) {

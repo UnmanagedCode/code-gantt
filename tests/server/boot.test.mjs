@@ -20,8 +20,9 @@ async function freePort() {
   return new Promise((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 }
 
-async function bootServer(conductorUrl) {
+async function bootServer(conductorUrl, prepare) {
   const s = makeStore({ sessions: { cccc0000: sess({ id: 'cccc0000' }), aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true }) } });
+  prepare?.(s);
   const port = await freePort();
   const child = spawn(process.execPath, [path.resolve(import.meta.dirname, '../../server.js')], {
     env: { PATH: process.env.PATH, PORT: String(port), PROJECTS_ROOT: s.projectsRoot, CLAUDE_PROJECTS_ROOT: s.transcriptRoot, CONDUCTOR_PLUGIN_DATA_DIR: s.dataDir, CONDUCTOR_URL: conductorUrl },
@@ -36,8 +37,9 @@ async function bootServer(conductorUrl) {
   }
   const gantt = health ? await (await fetch(`${url}/api/gantt`)).json() : null;
   child.kill('SIGTERM');
+  const result = { health, gantt, exitCode: child.exitCode };
   s.cleanup();
-  return { health, gantt, exitCode: child.exitCode };
+  return result;
 }
 
 test('S1: a malformed CONDUCTOR_URL does not crash the server; it serves with liveness unavailable', async () => {
@@ -55,4 +57,23 @@ test('S1: a black-holed conductor does not delay listening or /api/health', asyn
   hole.close();
   assert.deepEqual(r.health, { ok: true });
   assert.equal(r.gantt.diagnostics.liveness, 'unavailable');
+});
+
+import fs from 'node:fs';
+import os from 'node:os';
+
+test('G4: a directory at the legacy cache path does not stop the server from booting', async () => {
+  const r = await bootServer('', (s) => { fs.mkdirSync(path.join(s.dataDir, 'backfill-v1.json'), { recursive: true }); });
+  assert.deepEqual(r.health, { ok: true });
+  assert.equal(r.gantt.diagnostics.liveness, 'unavailable');
+});
+
+test('G4: a symlink at the legacy cache path pointing outside the data dir does not stop the boot, and its target is untouched', async () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gantt-outside-'));
+  const target = path.join(outside, 'precious.json');
+  fs.writeFileSync(target, 'keep me');
+  const r = await bootServer('', (s) => { fs.mkdirSync(s.dataDir, { recursive: true }); fs.symlinkSync(target, path.join(s.dataDir, 'backfill-v1.json')); });
+  assert.deepEqual(r.health, { ok: true });
+  assert.equal(fs.readFileSync(target, 'utf8'), 'keep me');
+  fs.rmSync(outside, { recursive: true, force: true });
 });

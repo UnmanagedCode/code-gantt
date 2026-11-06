@@ -202,13 +202,13 @@ test('F2: a genuine call that completed 100 s before the cutoff is kept, with or
   }
 });
 
-test('F2: a genuine same-key call shortly before the cutoff is not eaten: the ledger event pairs with its nearer twin', () => {
+test('G1: with result times known the cutoff rule is exact: a genuine same-key call at cut-1s and a twin completing at cut+9s are 2 links, not 1', () => {
   const cut = T0 + min(50);
   const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })], backfill: { calls: [
-    call({ id: 'genuine', ts: cut - 11_000, rts: cut - 9000 }),
-    call({ id: 'twin', ts: cut - 20_000, rts: cut + 1000 }),
+    call({ id: 'genuine', ts: cut - 3000, rts: cut - 1000 }),
+    call({ id: 'twin', ts: cut - 20_000, rts: cut + 9000 }),
   ], wakes: [] } });
-  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => [l.source, l.ts]), [['backfill', cut - 11_000], ['ledger', cut]]);
+  assert.deepEqual(r.links.filter((l) => l.type === 'send_prompt').map((l) => [l.source, l.ts]), [['backfill', cut - 3000], ['ledger', cut]]);
 });
 
 test('F2: a genuine call shortly before the cutoff is not eaten by an unrelated ledger interaction (other tool or target)', () => {
@@ -240,4 +240,19 @@ test('F2 (wakes): a wake straddling the cutoff by a small skew is deduped; one a
     { key: 'b#0', ts: cut - 60_000, worker: 'wrk1', owner: 'cond' },
   ] } });
   assert.deepEqual(r.links.filter((l) => l.type === 'wake').map((l) => [l.source, l.ts]), [['backfill', cut - 60_000], ['ledger', cut]]);
+});
+
+test('G2: an unresolvable id on a post-cutoff call counts once (its ledger counterpart), not twice', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut,
+    ledger: [lev({ ts: cut, sessionId: 'ghost0000' })],
+    backfill: { calls: [call({ target: 'ghost0000', ts: cut - 2000, rts: cut + 1000 })], wakes: [] } });
+  assert.equal(r.unresolved, 1);
+});
+
+test('G2: an unresolvable id on a pre-cutoff call still counts (it is real data that cannot be placed)', () => {
+  const cut = T0 + min(50);
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut })],
+    backfill: { calls: [call({ target: 'ghost0000', ts: cut - min(10), rts: cut - min(10) + 1000 })], wakes: [] } });
+  assert.equal(r.unresolved, 1);
 });
