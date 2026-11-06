@@ -1,0 +1,104 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { makeStore, sess, iso, T0, min } from '../helpers/store.mjs';
+import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
+import { createState } from '../../src/state.js';
+import { buildPayload } from '../../src/model/build.js';
+import { LINK_TYPES } from '../../src/model/linkTypes.js';
+
+const call = (id, target) => ({
+  type: 'assistant', timestamp: iso(T0 + min(15)), uuid: 'a' + id,
+  message: { content: [{ type: 'tool_use', id, name: 'mcp__code-conductor__send_prompt', input: { sessionId: target, text: S } }] },
+});
+const result = (id) => ({ type: 'user', timestamp: iso(T0 + min(15)), uuid: 'r' + id, message: { content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: JSON.stringify({ ok: true, note: S }) }] }] } });
+const wake = { type: 'user', timestamp: iso(T0 + min(16)), uuid: 'wk', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`wrk1aaaa\` finished.\n[[cc:wake-body]]${S}` }] } };
+
+async function fixture(extra = {}) {
+  const s = makeStore({
+    sessions: {
+      cond0000: { ...sess({ id: 'cond0000', backing: 'cb-cond' }), title: 'Conductor' },
+      wrk1aaaa: sess({ id: 'wrk1aaaa', parent: 'cond0000', project: 'p', worktree: 'wt', conducted: true, at: iso(T0 + min(10)), backing: 'bk-w1' }),
+      wrk2bbbb: sess({ id: 'wrk2bbbb', parent: 'cond0000', project: 'q', conducted: true, at: iso(T0 + min(3000)) }),
+    },
+    ledger: [
+      { ts: iso(T0 + min(10)), kind: 'spawn', sessionId: 'wrk1aaaa', playbook: 'classic', stage: 'plan', text: S },
+      { ts: iso(T0 + min(60)), kind: 'retire', sessionId: 'wrk1aaaa', reason: 'subprocess exited' },
+      { ts: iso(T0 + min(70)), kind: 'hologram', sessionId: 'wrk1aaaa' },
+      { ts: iso(T0 + min(80)), kind: 'interaction', conductorSessionId: 'cond0000', sessionId: 'wrk1aaaa', tool: 'frobnicate' },
+    ],
+    costs: [
+      { ts: T0 + min(30), duration_ms: min(10), sessionId: 'wrk1aaaa' },
+      { ts: T0 + min(130), duration_ms: min(20), sessionId: 'bk-w1' },
+      { ts: T0 + min(300), duration_ms: min(5), sessionId: 'wrk1aaaa' },
+    ],
+    transcripts: { 'cb-cond': [call('toolu_1', 'wrk1aaaa'), result('toolu_1'), wake] },
+    ...extra,
+  });
+  const state = createState(s.config);
+  await state.refreshStores();
+  await state.runBackfill();
+  return { s, state };
+}
+const win = { from: T0, to: T0 + min(120), now: T0 + min(5000) };
+
+test('the window keeps overlapping sessions and clips turns and links to it', async () => {
+  const { s, state } = await fixture();
+  const p = buildPayload(state, win);
+  assert.deepEqual(Object.keys(p.sessions).sort(), ['cond0000', 'wrk1aaaa']);
+  assert.deepEqual(p.sessions.wrk1aaaa.turns, [[T0 + min(20), T0 + min(30)], [T0 + min(110), T0 + min(120)]]);
+  assert.ok(p.links.every((l) => l.ts >= win.from && l.ts <= win.to));
+  assert.deepEqual(p.projects.map((g) => g.project), ['p']);
+  assert.deepEqual(p.projects[0].trees[0].rows.map((r) => [r.id, r.context]), [['cond0000', true], ['wrk1aaaa', false]]);
+  s.cleanup();
+});
+
+test('linkTypes equals LINK_TYPES and the payload carries bars, links and diagnostics', async () => {
+  const { s, state } = await fixture();
+  const p = buildPayload(state, win);
+  assert.deepEqual(p.linkTypes, LINK_TYPES);
+  assert.equal(p.sessions.wrk1aaaa.endKind, 'retired');
+  assert.equal(p.sessions.wrk1aaaa.playbook, 'classic');
+  assert.equal(p.sessions.cond0000.title, 'Conductor');
+  const types = new Set(p.links.map((l) => l.type));
+  assert.ok(types.has('spawn') && types.has('send_prompt') && types.has('wake') && types.has('other'));
+  const d = p.diagnostics;
+  assert.equal(d.liveness, 'unavailable');
+  assert.equal(d.backfill.state, 'ready');
+  assert.deepEqual(d.unknownKinds, { hologram: 1 });
+  assert.deepEqual(d.unknownTools, { frobnicate: 1 });
+  assert.equal(d.cutoff, iso(T0 + min(80)));
+  assert.equal(d.unresolved, 0);
+  assert.deepEqual(d.missing, []);
+  s.cleanup();
+});
+
+test('a live session is open-ended only when liveness is available', async () => {
+  const { s, state } = await fixture({ ledger: [] });
+  assert.equal(buildPayload(state, win).sessions.wrk1aaaa.endKind, 'approx');
+  state.liveSet = new Set(['wrk1aaaa']);
+  const p = buildPayload(state, win);
+  assert.equal(p.sessions.wrk1aaaa.endKind, 'live');
+  assert.equal(p.sessions.wrk1aaaa.end, null);
+  assert.equal(p.diagnostics.liveness, 'ok');
+  s.cleanup();
+});
+
+test('missing store files are reported in diagnostics.missing', async () => {
+  const s = makeStore();
+  const fs = await import('node:fs');
+  fs.rmSync(s.files.ledger);
+  fs.rmSync(s.files.costs);
+  const state = createState(s.config);
+  await state.refreshStores();
+  const p = buildPayload(state, win);
+  assert.deepEqual(p.diagnostics.missing.sort(), ['costs.jsonl', 'playbook-ledger.jsonl']);
+  s.cleanup();
+});
+
+test('the serialised payload contains no prompt sentinel', async () => {
+  const { s, state } = await fixture();
+  const p = buildPayload(state, { from: T0 - min(10), to: T0 + min(6000), now: T0 + min(6000) });
+  assert.ok(p.links.some((l) => l.source === 'backfill'));
+  assert.equal(JSON.stringify(p).includes(S), false);
+  s.cleanup();
+});
