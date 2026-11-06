@@ -38,6 +38,7 @@ export function mount(root, api) {
       `liveness: ${d.liveness}${d.liveness === 'unavailable' ? ' (no open-ended bars)' : ''}`,
       `backfill cutoff: ${d.cutoff ?? 'none'}`,
       `unresolved ids: ${d.unresolved}`,
+      `rows of deleted sessions: ${d.unmatchedStoreRows.ledger} ledger, ${d.unmatchedStoreRows.costs} cost`,
       `unknown ledger kinds: ${Object.values(d.unknownKinds).reduce((a, b) => a + b, 0)}`,
       `unknown tools (shown as other): ${Object.values(d.unknownTools).reduce((a, b) => a + b, 0)}`,
       `corrupt lines: ${d.corruptLines}`,

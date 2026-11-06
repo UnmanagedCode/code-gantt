@@ -102,3 +102,21 @@ test('the serialised payload contains no prompt sentinel', async () => {
   assert.equal(JSON.stringify(p).includes(S), false);
   s.cleanup();
 });
+
+test('C7: ledger events and cost rows of sessions that are not in sessions.json are counted, not silently dropped', async () => {
+  const { s, state } = await fixture({
+    ledger: [
+      { ts: iso(T0 + min(10)), kind: 'spawn', sessionId: 'aaaa1111', playbook: 'classic', stage: 'plan' },
+      { ts: iso(T0 + min(11)), kind: 'spawn', sessionId: 'deadbeef', stage: 'plan' },
+      { ts: iso(T0 + min(12)), kind: 'retire', sessionId: 'deadbeef', reason: 'x' },
+    ],
+    costs: [
+      { ts: T0 + min(30), duration_ms: 1000, sessionId: 'aaaa1111' },
+      { ts: T0 + min(31), duration_ms: 1000, sessionId: 'deadbeef' },
+      { ts: T0 + min(32), duration_ms: 1000, sessionId: 'deadbeef' },
+    ],
+  });
+  const d = buildPayload(state, win).diagnostics;
+  assert.deepEqual(d.unmatchedStoreRows, { ledger: 2, costs: 2 });
+  s.cleanup();
+});

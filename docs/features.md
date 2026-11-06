@@ -5,6 +5,7 @@
 - Chart rows: **project header → tree rows**. A tree's root is the conductor (a session with no parent, or an orphan whose parent is absent from `sessions.json`).
 - A root with no children is not a tree and is not shown.
 - Roots carry no `project`; a tree is attributed to every project of its descendants. In each project group the rows are that project's sessions plus all their ancestors; ancestors outside the project are **context** rows (italic, dimmed).
+- A tree's projects come from its descendants only; the root appears in a group only as a context row, whatever `project` its record carries.
 - Children are ordered by start; nesting has no depth limit.
 
 ## Bars
@@ -12,7 +13,7 @@
 | End kind | Meaning |
 |---|---|
 | `retired` | Last ledger `retire` with no later `resume`; `endReason` is shown in the details. |
-| `killed` | A `kill_instance` link after the last resume (red outline). If a retire follows the kill, the end is the retire time. |
+| `killed` | A `kill_instance` link after the last resume (red outline). With a retire, the kill must land within a few seconds of it, in either order (cc writes the retire first and the kill interaction a moment later; transcripts show the reverse); the end is then the retire time. A kill long after a retire leaves the bar `retired`. |
 | `live` | Session is live per cc's instance list; the bar extends to now. Requires `CONDUCTOR_URL`. |
 | `approx` | None of the above. The end is the latest of: last turn, last ledger event naming the session, last link touching it, last segment start. Drawn with a hatched tail; tooltip and details say "approximate end". |
 

@@ -36,7 +36,9 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
 
   const own = new Map();
   const namedMax = new Map();
+  const unmatched = { ledger: 0, costs: 0 }; // rows of sessions absent from sessions.json
   for (const ev of state.ledger.events) {
+    if (ev.sessionId && !idOf(ev.sessionId)) unmatched.ledger++;
     for (const raw of [ev.sessionId, ev.conductorSessionId, ev.forwardSessionId]) {
       const id = raw && idOf(raw);
       if (id && Number.isFinite(ev.ts)) namedMax.set(id, Math.max(namedMax.get(id) ?? 0, ev.ts));
@@ -49,6 +51,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   for (const [raw, list] of state.costs.turnsBySession) {
     const id = idOf(raw);
     if (id) turns.set(id, [...(turns.get(id) ?? []), ...list]);
+    else unmatched.costs += list.length;
   }
   for (const list of turns.values()) list.sort((a, b) => a[1] - b[1]);
 
@@ -127,6 +130,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
       backfill: bf,
       cutoff: state.ledger.cutoffTs == null ? null : new Date(state.ledger.cutoffTs).toISOString(),
       unresolved,
+      unmatchedStoreRows: unmatched,
       unknownTools,
       unknownKinds: state.ledger.unknownKinds,
       corruptLines: state.ledger.corruptLines + state.costs.corruptLines + bf.corrupt,

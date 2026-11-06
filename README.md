@@ -41,6 +41,6 @@ Install in cc: Settings → Plugins → Rescan → Enable. After a plugin code c
 ## Known limitations
 
 - Transcripts of remote projects are not scanned.
-- Sessions deleted from `sessions.json` are not shown; their ledger and cost rows are counted as unresolved ids.
+- Sessions deleted from `sessions.json` are not shown. Their ledger events and cost rows are dropped and counted in `diagnostics.unmatchedStoreRows` (shown in the footer); transcript-derived ids that cannot be resolved are counted in `diagnostics.unresolved`.
 - Without ledger `retire` events (untracked exits) or liveness, a bar ends at an approximate end.
 - The first backfill scan runs in the background; links appear progressively.

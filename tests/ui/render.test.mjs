@@ -18,18 +18,18 @@ function payload(over = {}) {
   return {
     now: 10_000, window: { from: 0, to: 10_000 }, version: 1,
     linkTypes: ['spawn', 'send_prompt', 'forward', 'wake', 'other'],
-    projects: [{ project: 'proj', trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true }, { id: 'w1', depth: 1, context: false }, { id: 'w2', depth: 1, context: false }] }] }],
+    projects: [{ project: 'proj', trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true, note: S }, { id: 'w1', depth: 1, context: false }, { id: 'w2', depth: 1, context: false }] }] }],
     sessions: {
       root: s('root', { title: 'Conductor' }),
-      w1: s('w1', { title: 'Worker one', project: 'proj', worktree: 'wt-1', model: 'model-x', playbook: 'classic' }),
+      w1: s('w1', { title: 'Worker one', project: 'proj', worktree: 'wt-1', model: 'model-x', playbook: 'classic', prompt: S, text: S, feedback: [S] }),
       w2: s('w2', { title: 'Worker two', project: 'proj', endKind: 'approx', end: 9500 }),
     },
     links: [
-      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', source: 'ledger' },
+      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', source: 'ledger', body: S, text: S },
       { ts: 6000, type: 'wake', from: 'w1', to: 'root', source: 'backfill' },
       { ts: 6500, type: 'wake', from: 'w2', to: 'root', source: 'backfill', heartbeat: true },
     ],
-    diagnostics: { liveness: 'unavailable', backfill: { state: 'ready', filesDone: 1, filesTotal: 1 }, cutoff: null, unresolved: 0, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
+    diagnostics: { liveness: 'unavailable', backfill: { state: 'ready', filesDone: 1, filesTotal: 1 }, cutoff: null, unresolved: 0, unmatchedStoreRows: { ledger: 0, costs: 0 }, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
     ...over,
   };
 }
@@ -53,6 +53,9 @@ test('dom.js refuses event-handler, style and URL attributes', () => {
 
 test('XSS: hostile id, title, project, worktree, model, stage, via and tool render as text only', async () => {
   const p = payload();
+  p.sessions[EVIL] = { ...p.sessions.w2, id: EVIL, endKind: 'retired', title: undefined };
+  p.projects[0].trees[0].rows.push({ id: EVIL, depth: 1, context: false });
+  p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL, source: 'ledger' });
   p.projects[0].project = EVIL;
   p.sessions.w1 = { ...p.sessions.w1, id: 'w1', title: EVIL2, project: EVIL, worktree: EVIL, model: EVIL2, playbook: EVIL,
     stages: [{ stage: EVIL, from: 1000, to: 9000, via: EVIL2 }] };
@@ -61,13 +64,17 @@ test('XSS: hostile id, title, project, worktree, model, stage, via and tool rend
   const { root, app } = boot(p);
   await app.load();
   click(root.querySelector('[data-id="w1"]'));
+  const w1Details = root.querySelector('#details').textContent;
+  const evilBar = [...root.querySelectorAll('.bar-g')].find((n) => n.getAttribute('data-id') === EVIL);
+  assert.ok(evilBar, 'a session whose id is hostile still renders a bar');
+  click(evilBar);
+  assert.ok(root.querySelector('#details').textContent.includes(EVIL));
   const g = root.querySelector('.link-g');
   g.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
   for (const bad of ['img', 'script']) assert.equal(document.querySelectorAll(bad).length, 0, bad);
   assert.equal(document.querySelectorAll('[onerror],[onclick]').length, 0);
-  const details = root.querySelector('#details');
-  assert.ok(details.textContent.includes(EVIL));
-  assert.ok(details.textContent.includes(EVIL2));
+  assert.ok(w1Details.includes(EVIL));
+  assert.ok(w1Details.includes(EVIL2));
   assert.ok(root.textContent.includes(EVIL));
 });
 
@@ -114,10 +121,14 @@ test('a hovered link shows a tooltip naming type and endpoints', async () => {
   assert.match(tip.textContent, /Worker one → Conductor/);
 });
 
-test('the rendered page carries no prompt sentinel and shows the diagnostics', async () => {
+test('C6: free-text fields outside the payload schema are never rendered (page, tooltip, details)', async () => {
   const p = payload();
   const { root, app } = boot(p);
   await app.load();
+  click(root.querySelector('[data-id="w1"]'));
+  root.querySelector('.link-g').dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 50 }));
+  assert.ok(JSON.stringify(p).includes(S), 'fixture really carries the sentinel in unknown fields');
   assert.equal(document.body.textContent.includes(S), false);
+  assert.equal(document.documentElement.outerHTML.includes(S), false);
   assert.match(root.querySelector('.diagnostics').textContent, /liveness: unavailable/);
 });
