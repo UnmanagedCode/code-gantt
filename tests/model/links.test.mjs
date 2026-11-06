@@ -288,3 +288,21 @@ test('H2: an unresolvable wake paired with its ledger wake counts once', () => {
     backfill: { calls: [], wakes: [{ key: 'a#0', ts: cut - 2000, worker: 'ghost0000', owner: 'cond' }] } });
   assert.equal(r.unresolved, 1);
 });
+
+test('J1: only the id a ledger twin actually names is suppressed; an unresolvable owner no ledger entry names still counts', () => {
+  const cut = T0 + min(50);
+  const { rts, ...parked } = call({ target: 'ghost0000', owner: 'ghostowner', ts: cut - 2000 });
+  const r = run({ cutoffTs: cut, ledger: [lev({ ts: cut, sessionId: 'ghost0000' })], backfill: { calls: [parked], wakes: [] } });
+  assert.equal(r.unresolved, 2, 'ghost0000 once (ledger), ghostowner once (backfill)');
+});
+
+test('J1: likewise for a forward id the twin does not name, and for a wake whose owner is unresolvable', () => {
+  const cut = T0 + min(50);
+  const { rts, ...parked } = call({ target: 'ghost0000', forward: 'ghostfwd', ts: cut - 2000 });
+  const a = run({ cutoffTs: cut, ledger: [lev({ ts: cut, sessionId: 'ghost0000' })], backfill: { calls: [parked], wakes: [] } });
+  assert.equal(a.unresolved, 2);
+  const b = run({ cutoffTs: cut,
+    ledger: [{ line: 1, ts: cut, kind: 'wake', sessionId: 'wrk1', conductorSessionId: 'cond' }],
+    backfill: { calls: [], wakes: [{ key: 'a#0', ts: cut - 2000, worker: 'wrk1', owner: 'ghostowner' }] } });
+  assert.equal(b.unresolved, 1, 'the owner is named by no ledger entry');
+});

@@ -94,36 +94,36 @@ export function buildLinks({ sessions, ledger, backfill, cutoffTs }) {
   // send_prompt); its `rts` is the tool_result line, written after the handler like the ledger entry. All
   // cutoff and twin decisions use `et` = rts when known, so they do not depend on how long the handler took.
   const afterCutoff = (et) => cutoffTs != null && et >= cutoffTs;
-  // A pairable backfill event just before the cutoff whose raw id a ledger entry just after it also names is
-  // that entry's twin: the ledger entry counts the id, so the backfill event must not count it again.
-  const hasLedgerTwin = (kind, rawId, et) => cutoffTs != null
-    && ledger.some((ev) => ev.kind === kind && ev.sessionId === rawId && ev.ts >= cutoffTs && Math.abs(et - ev.ts) <= BOUNDARY_WINDOW_MS);
+  // A failed resolve of a pairable backfill event is not counted when a ledger entry just after the cutoff
+  // names that very raw id in the same field: the ledger entry counts it. Any other id of the event counts.
+  const namedByTwin = (kind, field, rawId, et) => cutoffTs != null
+    && ledger.some((ev) => ev.kind === kind && ev[field] === rawId && ev.ts >= cutoffTs && Math.abs(et - ev.ts) <= BOUNDARY_WINDOW_MS);
+  const countUnless = (pairable, kind, field, rawId, et) => () => !afterCutoff(et) && !(pairable && namedByTwin(kind, field, rawId, et));
   for (const c of backfill.calls) {
     if (!c.ok) continue;
     const et = c.rts ?? c.ts;
     // cc appends the ledger entry before the result line is written, so a call whose result is known and
     // landed at or after the cutoff always has its ledger entry: drop it before resolving anything.
     if (c.rts !== undefined && afterCutoff(et)) continue;
-    // only a call without a result time can still reach here after the cutoff
-    const count = () => !afterCutoff(et) && !(c.rts === undefined && hasLedgerTwin('interaction', c.target, et));
-    const to = resolve(c.target, c.owner, count);
-    if (!to) continue;
-    let from = resolve(c.owner, undefined, count);
+    // Every id of the call is resolved (and an unplaceable one counted) before deciding whether a link exists.
+    const pairable = c.rts === undefined; // only such a call can still reach here after the cutoff
+    const to = resolve(c.target, c.owner, countUnless(pairable, 'interaction', 'sessionId', c.target, et));
+    const owner = resolve(c.owner, undefined, countUnless(pairable, 'interaction', 'conductorSessionId', c.owner, et));
+    let from = owner;
     let type = typeOfTool(c.tool); // cached values are untrusted: anything ungoverned is `other`
     if (c.forward) {
-      from = resolve(c.forward, c.owner, count);
+      from = resolve(c.forward, c.owner, countUnless(pairable, 'interaction', 'forwardSessionId', c.forward, et));
       type = 'forward';
     }
-    if (!from) continue;
+    if (!to || !from) continue;
     // Without a result time the tool_use time may precede the handler by minutes, so such a call can only
     // be matched to a ledger twin by pairing; with one, the cutoff rule above is exact and pairing would
     // only risk eating a genuine call.
     candidates.push({ link: { ts: c.ts, type, from, to, source: 'backfill' }, target: to, tool: c.tool, et, pairable: c.rts === undefined });
   }
   for (const w of backfill.wakes) {
-    const count = () => !afterCutoff(w.ts) && !hasLedgerTwin('wake', w.worker, w.ts);
-    const worker = resolve(w.worker, w.owner, count);
-    const owner = resolve(w.owner, undefined, count);
+    const worker = resolve(w.worker, w.owner, countUnless(true, 'wake', 'sessionId', w.worker, w.ts));
+    const owner = resolve(w.owner, undefined, countUnless(true, 'wake', 'conductorSessionId', w.owner, w.ts));
     if (!worker || !owner) continue;
     // wakes have no result line: their transcript time is all there is, so they are matched by pairing
     backfillCands.push({ link: { ts: w.ts, type: 'wake', from: worker, to: owner, source: 'backfill', ...(w.heartbeat ? { heartbeat: true } : {}) }, et: w.ts, pairable: true });
