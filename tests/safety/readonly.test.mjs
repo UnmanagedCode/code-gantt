@@ -3,54 +3,52 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { makeStore, snapshotDir, sess, iso, min, evCall, evSession, SYSTEM } from '../helpers/store.mjs';
-import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
+import { makeStore, snapshotDir, sess, iso, min, evCall, evSession, horizonRows, SYSTEM } from '../helpers/store.mjs';
 import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 import { createApp } from '../../src/http/app.js';
 
-test('a full app run changes nothing in the store or transcript root; every new file is under dataDir', async () => {
+// S2: the plugin has no write path, so a whole run - state construction, the first read, an incremental
+// re-read after the store changed, and HTTP - writes nothing anywhere under the temp root.
+test('a full app run writes nothing: the snapshot of the whole temp root is identical before and after', async () => {
   const now = Date.now();
   const s = makeStore({
-    sessions: { cccc0000: { ...sess({ id: 'cccc0000', backing: 'cb1' }) }, aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true, at: iso(now - min(5)) }) },
-    events: [evCall(iso(now - min(4)), { type: 'conductor' }, 'aaaa1111', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } })],
-    costs: [{ ts: now - min(3), duration_ms: 1000, sessionId: 'aaaa1111' }],
-    transcripts: { cb1: [{ type: 'user', timestamp: iso(now - min(2)), uuid: 'u', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`aaaa1111\` finished.\n[[cc:wake-body]]${S}` }] } }] },
+    sessions: { cccc0000: sess({ id: 'cccc0000', backing: 'cb1' }), aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true, at: iso(now - min(5)) }) },
+    events: [
+      evCall(iso(now - min(4)), { type: 'conductor' }, 'aaaa1111', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
+      ...horizonRows(now - min(3), 'aaaa1111', 'cccc0000'),
+    ],
   });
   const pub = path.join(s.root, 'pub-fixture');
   fs.mkdirSync(pub);
   fs.writeFileSync(path.join(pub, 'index.html'), '<title>x</title>');
-
-  const watched = [s.storeDir, s.transcriptRoot, s.projectsRoot];
-  const before = Object.assign({}, ...(await Promise.all(watched.map(snapshotDir))));
-  const beforePub = await snapshotDir(pub);
-
+  const baseline = await snapshotDir(s.root); // before any plugin code runs
   const state = createState(s.config);
   const live = createLive({ state, config: state.config, schedule: () => () => {} });
+  const changed = [];
+  live.events.on('changed', (v) => changed.push(v));
   await live.start();
   await state.refreshStores();
+  assert.deepEqual(await snapshotDir(s.root), baseline, 'state construction and the first read wrote nothing');
+  // the store changes after the first read: the poll must detect it and re-read incrementally
+  s.appendEvents(evSession(now - min(1), SYSTEM, 'aaaa1111', 'exit', { cause: 'exited' }));
+  const before = await snapshotDir(s.root);
+  const differing = Object.keys(before).filter((k) => before[k] !== baseline[k]);
+  assert.deepEqual(differing, [s.files.events], 'the test itself changed only events.jsonl');
+
   const server = http.createServer(createApp({ state, live, publicDir: pub }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
-  await state.runBackfill();
-  assert.equal(state.backfill.status().state, 'ready');
-  await (await fetch(`${url}/api/gantt`)).json();
-
-  const appended = s.files.events;
-  s.appendEvents(evSession(iso(now - min(1)), SYSTEM, 'aaaa1111', 'exit', { cause: 'exited' }));
+  assert.equal((await (await fetch(`${url}/api/gantt`)).json()).sessions.aaaa1111.endKind, 'approx', 'the appended row is not read yet');
   await live.poll();
+  assert.equal(changed.length, 1, 'the poll refreshed');
   const p = await (await fetch(`${url}/api/gantt`)).json();
-  assert.equal(p.sessions.aaaa1111.endKind, 'exited');
+  assert.equal(p.sessions.aaaa1111.endKind, 'exited', 'the appended row was re-read');
+  await fetch(`${url}/`);
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
   live.stop();
 
-  const after = Object.assign({}, ...(await Promise.all(watched.map(snapshotDir))));
-  const changed = Object.keys(after).filter((k) => before[k] !== after[k]);
-  assert.deepEqual(changed, [appended]);
-  assert.deepEqual(await snapshotDir(pub), beforePub);
-  const files = Object.keys(await snapshotDir(s.dataDir));
-  assert.ok(files.some((f) => f.endsWith('backfill.json')));
-  assert.ok(files.every((f) => f.startsWith(s.dataDir + path.sep)));
+  assert.deepEqual(await snapshotDir(s.root), before);
   s.cleanup();
 });

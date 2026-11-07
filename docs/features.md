@@ -19,14 +19,15 @@
 
 Bar content:
 
-- **Turns:** darker segments from the event log's `turn` rows (a turn still open runs to the bar's end); before the log's first `turn` row, from `costs.jsonl`.
+- **Turns:** darker segments from the event log's `turn` rows (a turn still open runs to the bar's end).
+- **Horizon:** nothing before the horizon (the moment the event log is complete for links and turns; shown in the footer) is drawn. A bar spanning it starts there with the stage it held; sessions that ended earlier are absent, or label-only when they are ancestors of a visible session.
 - **Stage bands:** thin colour strip along the bottom, one band per playbook stage (the `bind` stage, then each `move`; a second `bind` restarts the bands); colour is stable per stage name.
 - **Rotation markers:** diamonds for `renew` (blue) and `prune` (purple) segments after the first.
 - **Exit/resume marks:** dots for intermediate `session` `exit` (red) and `resume` (green) rows.
 
 ## Links
 
-Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type, source and endpoints. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
+Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
 
 | Type | Direction |
 |---|---|
@@ -42,8 +43,8 @@ Vertical connector at the event time from source row to target row, ending in a 
 - **Projects, Trees, Links:** checkboxes. `wake heartbeat` is independent of `wake`.
 - **Zoom/pan:** wheel zooms around the cursor, drag pans; both clamped to the loaded window. *Reset zoom* restores the window.
 - **Details panel:** click a bar for id, title, project, worktree, model, playbook, state, start/end, turn count, rotations and stage history.
-- **Banner:** shows backfill progress while transcripts are being scanned.
-- **Footer:** liveness state, backfill cutoff, unresolved ids, rows of deleted sessions, unknown event kinds/tools, other-version rows (only when present), corrupt lines, missing files.
+- **Banner:** says so when the event log has no complete history yet (nothing is drawn).
+- **Footer:** liveness state, history from (the horizon), unresolved ids, rows of deleted sessions, unknown event kinds/tools, other-version rows (only when present), corrupt lines, missing files.
 - Updates arrive over SSE; the chart reloads when the server's version changes.
 
 ## Privacy

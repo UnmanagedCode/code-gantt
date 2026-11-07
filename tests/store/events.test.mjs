@@ -99,23 +99,51 @@ test('concurrent refresh() calls on a one-line file yield exactly one row', asyn
   s.cleanup();
 });
 
-test('cutoffTs is the first wake or first call naming its caller; unattributed calls never set it', async () => {
+// E1: the horizon is the max of the two markers, whichever comes first in the log.
+test('horizonTs is the later of the first wake-or-attributed-call row and the first turn row', async () => {
   const unattributed = evCall(T0, { type: 'conductor' }, 'w', 'send_prompt');
-  const { s, r } = await read([unattributed, evSession(T0 + min(1), SYSTEM, 'w', 'start'), evCall(T0 + min(2), 'c', 'w', 'send_prompt'), evWake(T0 + min(3), 'w', 'c')]);
-  assert.equal(r.cutoffTs, T0 + min(2));
-  const w = await read([unattributed, evWake(T0 + min(3), 'w', 'c'), evCall(T0 + min(4), 'c', 'w', 'send_prompt')]);
-  assert.equal(w.r.cutoffTs, T0 + min(3));
-  const n = await read([unattributed, evSession(T0, SYSTEM, 'w', 'start')]);
-  assert.equal(n.r.cutoffTs, null);
-  s.cleanup(); w.s.cleanup(); n.s.cleanup();
+  // turn first, link marker (an attributed call, ahead of a later wake) after it
+  const a = await read([unattributed, evTurn(T0 + min(1), 'c', 'w', 'start'), evCall(T0 + min(2), 'c', 'w', 'send_prompt'), evWake(T0 + min(3), 'w', 'c')]);
+  assert.equal(a.r.horizonTs, T0 + min(2));
+  // link marker (a wake) first, turn after it
+  const b = await read([unattributed, evWake(T0 + min(3), 'w', 'c'), evCall(T0 + min(4), 'c', 'w', 'send_prompt'), evTurn(T0 + min(5), 'c', 'w', 'start'), evTurn(T0 + min(6), SYSTEM, 'w', 'end')]);
+  assert.equal(b.r.horizonTs, T0 + min(5));
+  // a later turn does not move it
+  const c = await read([evWake(T0 + min(1), 'w', 'c'), evTurn(T0 + min(2), 'c', 'w', 'start'), evTurn(T0 + min(9), 'c', 'w', 'start')]);
+  assert.equal(c.r.horizonTs, T0 + min(2));
+  // an unattributed call never sets the link marker, so the first attributed row decides
+  const d = await read([unattributed, evTurn(T0 + min(1), 'c', 'w', 'start'), evWake(T0 + min(7), 'w', 'c')]);
+  assert.equal(d.r.horizonTs, T0 + min(7));
+  for (const x of [a, b, c, d]) x.s.cleanup();
 });
 
-test('turnCutoffTs is the first turn row, null when none', async () => {
-  const { s, r } = await read([evSession(T0, SYSTEM, 'w', 'start'), evTurn(T0 + min(4), 'c', 'w', 'start'), evTurn(T0 + min(5), SYSTEM, 'w', 'end')]);
-  assert.equal(r.turnCutoffTs, T0 + min(4));
-  const n = await read([evSession(T0, SYSTEM, 'w', 'start')]);
-  assert.equal(n.r.turnCutoffTs, null);
-  s.cleanup(); n.s.cleanup();
+// E2: a log lacking either marker has no horizon.
+test('horizonTs is null while either marker is missing', async () => {
+  const unattributed = evCall(T0, { type: 'conductor' }, 'w', 'send_prompt');
+  const cases = {
+    'empty log': [],
+    'unattributed calls only': [unattributed, evSession(T0, SYSTEM, 'w', 'start')],
+    'turn rows only': [evTurn(T0, 'c', 'w', 'start'), evTurn(T0 + min(1), SYSTEM, 'w', 'end')],
+    'wake only': [evWake(T0, 'w', 'c')],
+    'attributed call only': [evCall(T0, 'c', 'w', 'send_prompt')],
+  };
+  for (const [name, events] of Object.entries(cases)) {
+    const { s, r } = await read(events);
+    assert.equal(r.horizonTs, null, name);
+    s.cleanup();
+  }
+});
+
+// T2: with a link marker later than every post-reset marker, a stale #firstLinkTs would show.
+test('after a truncation reset the horizon comes only from re-read rows, even when the pre-reset link marker was later than all of them', async () => {
+  const s = makeStore({ events: [evTurn(T0 + min(10), 'c', 'w', 'start'), evCall(T0 + min(50), 'c', 'w', 'send_prompt'), evSession(T0, SYSTEM, 'w', 'start'), evSession(T0, SYSTEM, 'w', 'exit'), evSession(T0, SYSTEM, 'w', 'resume')] });
+  const r = new EventLogReader(s.files.events);
+  await r.refresh();
+  assert.equal(r.horizonTs, T0 + min(50));
+  fs.writeFileSync(s.files.events, [evWake(T0 + min(8), 'w', 'c'), evTurn(T0 + min(9), 'c', 'w', 'start')].map((x) => JSON.stringify(x)).join('\n') + '\n');
+  await r.refresh();
+  assert.equal(r.horizonTs, T0 + min(9));
+  s.cleanup();
 });
 
 test('unknown kinds named like Object.prototype members are counted as plain keys', async () => {
@@ -133,10 +161,16 @@ test('truncation clears rows and every counter, corruptLines included', async ()
   await r.refresh();
   assert.equal(r.events.length, 3);
   assert.equal(r.corruptLines, 1);
-  fs.writeFileSync(s.files.events, JSON.stringify(evSession(T0, SYSTEM, 'w', 'start')) + '\n');
+  assert.equal(r.horizonTs, T0);
+  // E3: a reset clears both markers; the horizon is recomputed from the re-read rows only
+  const compact = (...rows) => rows.map((x) => JSON.stringify(x)).join('\n') + '\n';
+  fs.writeFileSync(s.files.events, compact(evWake(T0 + min(8), 'w', 'c'), evTurn(T0 + min(9), 'c', 'w', 'start')));
+  await r.refresh();
+  assert.equal(r.horizonTs, T0 + min(9));
+  fs.writeFileSync(s.files.events, compact(evSession(T0, SYSTEM, 'w', 'start')));
   await r.refresh();
   assert.deepEqual(r.events.map((e) => e.kind), ['session']);
-  assert.deepEqual([r.cutoffTs, r.turnCutoffTs, r.otherVersionRows, r.unknownKinds, r.corruptLines], [null, null, 0, {}, 0]);
+  assert.deepEqual([r.horizonTs, r.otherVersionRows, r.unknownKinds, r.corruptLines], [null, 0, {}, 0]);
   s.cleanup();
 });
 

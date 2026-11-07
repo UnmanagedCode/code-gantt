@@ -25,11 +25,11 @@ function payload(over = {}) {
       w2: s('w2', { title: 'Worker two', project: 'proj', endKind: 'approx', end: 9500 }),
     },
     links: [
-      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', source: 'store', body: S, text: S },
-      { ts: 6000, type: 'wake', from: 'w1', to: 'root', source: 'backfill' },
-      { ts: 6500, type: 'wake', from: 'w2', to: 'root', source: 'backfill', heartbeat: true },
+      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', body: S, text: S },
+      { ts: 6000, type: 'wake', from: 'w1', to: 'root' },
+      { ts: 6500, type: 'wake', from: 'w2', to: 'root', heartbeat: true },
     ],
-    diagnostics: { liveness: 'unavailable', backfill: { state: 'ready', filesDone: 1, filesTotal: 1 }, cutoff: null, unresolved: 0, unmatchedStoreRows: { events: 0, costs: 0 }, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
+    diagnostics: { liveness: 'unavailable', horizon: '1970-01-01T00:00:00.000Z', unresolved: 0, unmatchedStoreRows: { events: 0 }, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
     ...over,
   };
 }
@@ -55,12 +55,12 @@ test('XSS: hostile id, title, project, worktree, model, stage, via and tool rend
   const p = payload();
   p.sessions[EVIL] = { ...p.sessions.w2, id: EVIL, endKind: 'exited', title: undefined };
   p.projects[0].trees[0].rows.push({ id: EVIL, depth: 1, context: false });
-  p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL, source: 'store' });
+  p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL });
   p.projects[0].project = EVIL;
   p.sessions.w1 = { ...p.sessions.w1, id: 'w1', title: EVIL2, project: EVIL, worktree: EVIL, model: EVIL2, playbook: EVIL,
     stages: [{ stage: EVIL, from: 1000, to: 9000, via: EVIL2 }] };
   p.linkTypes.push(EVIL);
-  p.links.push({ ts: 7000, type: EVIL, from: 'root', to: 'w1', source: 'store' });
+  p.links.push({ ts: 7000, type: EVIL, from: 'root', to: 'w1' });
   const { root, app } = boot(p);
   await app.load();
   click(root.querySelector('[data-id="w1"]'));
@@ -147,10 +147,19 @@ test('R5: a selection named like an Object.prototype member that vanishes from t
   assert.match(root.querySelector('#details').textContent, /Select a bar/);
 });
 
-test('R3: dropped wake markers are surfaced in the footer', async () => {
+// U1: an empty chart is explained. Asserted on role/state (the status banner), not wording.
+test('with horizon null the status banner is non-empty; with a horizon it is empty', async () => {
   const p = payload();
-  p.diagnostics.backfill.droppedMarkers = 7;
-  const { root, app } = boot(p);
-  await app.load();
-  assert.match(root.querySelector('.diagnostics').textContent, /dropped wake markers: 7/);
+  const withHorizon = boot(p);
+  await withHorizon.app.load();
+  assert.equal(withHorizon.root.querySelector('.banner').textContent, '');
+  const none = payload({ projects: [], sessions: {}, links: [] });
+  none.diagnostics.horizon = null;
+  const b = boot(none);
+  await b.app.load();
+  assert.notEqual(b.root.querySelector('.banner').textContent, '');
+  // T5: keyed on the horizon, not on an empty chart
+  const empty = boot(payload({ projects: [], sessions: {}, links: [] }));
+  await empty.app.load();
+  assert.equal(empty.root.querySelector('.banner').textContent, '');
 });

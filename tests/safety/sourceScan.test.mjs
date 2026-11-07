@@ -16,12 +16,11 @@ function walk(dir, exts) {
 }
 const rel = (p) => path.relative(root, p);
 
-test('only src/dataDir.js uses fs write APIs', () => {
+test('no module in src/ or server.js uses an fs write API', () => {
   const files = [...walk(path.join(root, 'src'), ['.js']), path.join(root, 'server.js')].filter((f) => fs.existsSync(f));
   assert.ok(files.length > 1);
   const re = /\b(writeFile\w*|appendFile\w*|rename\w*|mkdir\w*|rm|rmSync|unlink\w*|createWriteStream|copyFile\w*|truncate\w*)\s*\(/;
   const offenders = files
-    .filter((f) => rel(f) !== path.join('src', 'dataDir.js'))
     .filter((f) => re.test(fs.readFileSync(f, 'utf8')))
     .map(rel);
   assert.deepEqual(offenders, []);

@@ -1,6 +1,6 @@
 import { buildForest, groupByProject } from './tree.js';
 import { buildLinks } from './links.js';
-import { buildBar } from './bars.js';
+import { buildBar, clipToHorizon } from './bars.js';
 import { resolveId } from './resolve.js';
 import { LINK_TYPES } from './linkTypes.js';
 import { buildTurns } from './turns.js';
@@ -20,6 +20,15 @@ function clipTurns(turns, from, to) {
 export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   to ??= now;
   from ??= to - DEFAULT_WINDOW_MS;
+  const horizon = state.events.horizonTs;
+  // Nothing is drawable without a horizon, or in a window that ends before it; the requested window is echoed.
+  if (horizon == null || to < horizon) {
+    return {
+      now, window: { from, to }, version: state.version, linkTypes: LINK_TYPES, projects: [], sessions: {}, links: [],
+      diagnostics: diagnostics(state, { horizon: horizon == null ? null : new Date(horizon).toISOString(), unresolved: 0, unmatchedStoreRows: { events: 0 }, unknownTools: {}, treeLoops: 0 }),
+    };
+  }
+  from = Math.max(from, horizon);
   const { byId, byBacking } = state.sessions;
   const forest = buildForest(byId);
   const groups = groupByProject(forest.trees);
@@ -30,13 +39,11 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   const { links: allLinks, unresolved, unknownTools } = buildLinks({
     sessions: { byId, byBacking, forest },
     events: state.events.events,
-    backfill: state.backfill.collect(),
-    cutoffTs: state.events.cutoffTs,
   });
 
   const own = new Map();
   const namedMax = new Map();
-  const unmatched = { events: 0, costs: 0 }; // rows of sessions absent from sessions.json
+  const unmatched = { events: 0 }; // rows of sessions absent from sessions.json
   for (const ev of state.events.events) {
     if (ev.subject && !idOf(ev.subject)) unmatched.events++;
     for (const raw of [ev.subject, ev.actor.sessionId, ev.forward, ev.recipient]) {
@@ -48,21 +55,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     if (id && (ev.kind === 'session' || (ev.kind === 'call' && (ev.bind || ev.move)))) (own.get(id) ?? own.set(id, []).get(id)).push(ev);
   }
 
-  // Turns: costs.jsonl before the event log's first `turn` row (none exist before it), `turn` rows from then on.
-  const turnCutoff = state.events.turnCutoffTs;
-  const turns = new Map();
-  const addTurns = (id, list) => turns.set(id, [...(turns.get(id) ?? []), ...list]);
-  for (const [raw, list] of state.costs.turnsBySession) {
-    const id = idOf(raw);
-    if (!id) {
-      unmatched.costs += list.length;
-      continue;
-    }
-    const kept = turnCutoff == null ? list : list.filter(([, e]) => e < turnCutoff);
-    if (kept.length) addTurns(id, kept);
-  }
   const rowTurns = buildTurns(state.events.events, idOf);
-  for (const list of turns.values()) list.sort((a, b) => a[1] - b[1]);
 
   const linkTs = new Map();
   const kills = new Map();
@@ -79,7 +72,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     // An open turn (no `end` yet) is sized after the bar's end is known: it counts as activity at its start
     // for the approximate end, then runs to the bar's end (`now` while live).
     const openTurns = [];
-    const t = [...(turns.get(id) ?? [])];
+    const t = [];
     for (const [s, e] of rowTurns.get(id) ?? []) {
       const iv = [s, e ?? s];
       if (e == null) openTurns.push(iv);
@@ -117,7 +110,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
         if (sessions.has(r.id)) continue;
         const rec = byId.get(r.id);
         const bar = barOf(r.id);
-        const s = { ...bar, turns: clipTurns(bar.turns, from, to) };
+        const s = clipToHorizon({ ...bar, turns: clipTurns(bar.turns, from, to) }, horizon);
         for (const k of ['title', 'project', 'worktree', 'parent']) if (rec[k] != null) s[k] = rec[k];
         if (rec.backend?.model) s.model = rec.backend.model;
         if (orphanRoots.has(r.id)) s.orphan = true;
@@ -129,13 +122,6 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
 
   const links = allLinks.filter((l) => l.ts >= from && l.ts <= to && sessions.has(l.from) && sessions.has(l.to));
 
-  const missing = [];
-  if (state.sessions.missing) missing.push('sessions.json');
-  if (state.events.missing) missing.push('events.jsonl');
-  if (state.costs.missing) missing.push('costs.jsonl');
-  const errors = state.sessions.error ? [state.sessions.error] : [];
-  const bf = state.backfill.status();
-
   return {
     now,
     window: { from, to },
@@ -144,19 +130,27 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     projects,
     sessions: Object.fromEntries(sessions),
     links,
-    diagnostics: {
-      liveness: state.liveSet ? 'ok' : 'unavailable',
-      backfill: bf,
-      cutoff: state.events.cutoffTs == null ? null : new Date(state.events.cutoffTs).toISOString(),
+    diagnostics: diagnostics(state, {
+      horizon: new Date(horizon).toISOString(),
       unresolved,
       unmatchedStoreRows: unmatched,
       unknownTools,
-      unknownKinds: state.events.unknownKinds,
-      otherVersionRows: state.events.otherVersionRows,
-      corruptLines: state.events.corruptLines + state.costs.corruptLines + bf.corrupt,
       treeLoops: forest.loops,
-      missing,
-      errors,
-    },
+    }),
+  };
+}
+
+function diagnostics(state, own) {
+  const missing = [];
+  if (state.sessions.missing) missing.push('sessions.json');
+  if (state.events.missing) missing.push('events.jsonl');
+  return {
+    liveness: state.liveSet ? 'ok' : 'unavailable',
+    ...own,
+    unknownKinds: state.events.unknownKinds,
+    otherVersionRows: state.events.otherVersionRows,
+    corruptLines: state.events.corruptLines,
+    missing,
+    errors: state.sessions.error ? [state.sessions.error] : [],
   };
 }

@@ -1,7 +1,7 @@
 /**
  * Governed cc tools that move a session and are recorded as event-log `call` rows
  * (every interaction tool: it declares `sessionId` and is not read-only).
- * The backfill extractor and the event-log link builder both read this list.
+ * The link builder types `call` rows from this list.
  */
 export const GOVERNED_TOOLS = [
   'send_prompt', 'approve_plan', 'reject_plan', 'answer_question', 'interrupt_turn', 'kill_instance',

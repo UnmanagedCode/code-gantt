@@ -30,7 +30,7 @@ export function buildBar(rec, ctx) {
   own.forEach((e, i) => { if (e.kind === 'session' && e.event === 'exit' && i > lastLifeIdx) exitIdx = i; });
   const exit = exitIdx >= 0 ? own[exitIdx] : null;
   const afterLife = ctx.kills.filter((t) => t > lastLifeTs);
-  // cc writes the exit first and the kill_instance call right after it; a backfilled kill may come either side.
+  // cc writes the exit first and the kill_instance call right after it; either order is accepted.
   const kill = exit
     ? afterLife.filter((t) => Math.abs(t - exit.ts) <= KILL_AFTER_EXIT_MS).sort((a, b) => a - b).at(-1) ?? null
     : afterLife.sort((a, b) => a - b).at(-1) ?? null;
@@ -95,4 +95,23 @@ export function buildBar(rec, ctx) {
   if (endReason !== undefined) out.endReason = endReason;
   if (playbook) out.playbook = playbook;
   return out;
+}
+
+/**
+ * Clips a built bar to the horizon `h` (ms). Pure; the bar itself is always built from the whole log.
+ * A bar that ends at or after `h` starts at `h` and keeps only the marks, rotations and stage bands from
+ * `h` on; the stage held at `h` is carried in as a band starting at `h`. A bar that ends before `h` keeps
+ * its start and end but draws nothing.
+ */
+export function clipToHorizon(bar, h) {
+  if (bar.end != null && bar.end < h) return { ...bar, marks: [], rotations: [], stages: [], turns: [] };
+  return {
+    ...bar,
+    start: Math.max(bar.start, h),
+    marks: bar.marks.filter((m) => m.at >= h),
+    rotations: bar.rotations.filter((r) => r.at >= h),
+    stages: bar.stages
+      .filter((s) => s.to == null || s.to > h)
+      .map((s) => (s.from < h ? { ...s, from: h } : s)),
+  };
 }

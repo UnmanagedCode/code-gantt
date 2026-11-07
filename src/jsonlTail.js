@@ -6,8 +6,7 @@ import fs from 'node:fs/promises';
  *
  * @param {string} file
  * @param {number} offset byte offset returned by the previous call (0 initially)
- * @param {{filter?: (line: string) => boolean, onOpen?: () => void}} [opts]
- *   filter: cheap substring prefilter run before JSON.parse; non-matching lines are skipped unparsed.
+ * @param {{onOpen?: () => void}} [opts]
  *   onOpen: hook invoked right after the size is captured (lets tests grow the file mid-read).
  * @returns {Promise<{lines: {value: any, byteOffset: number}[], offset: number, corrupt: {byteOffset: number}[], missing: boolean, reset: boolean, size: number}>}
  */
@@ -51,7 +50,6 @@ export async function readFrom(file, offset, opts = {}) {
       const byteOffset = start + pos;
       pos = nl + 1;
       if (text.trim() === '') continue;
-      if (opts.filter && !opts.filter(text)) continue;
       try {
         out.lines.push({ value: JSON.parse(text), byteOffset });
       } catch {

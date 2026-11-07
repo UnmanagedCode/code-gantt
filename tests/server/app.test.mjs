@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { makeStore, sess, iso, T0, min, evCall, evSession, SYSTEM } from '../helpers/store.mjs';
+import { makeStore, sess, iso, T0, min, evCall, evSession, horizonRows, SYSTEM } from '../helpers/store.mjs';
 import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 import { createApp } from '../../src/http/app.js';
@@ -11,7 +11,7 @@ import { createApp } from '../../src/http/app.js';
 async function boot({ maxStreams } = {}) {
   const s = makeStore({
     sessions: { c: sess({ id: 'c' }), w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true, at: iso(Date.now() - min(5)) }) },
-    events: [evCall(iso(Date.now() - min(4)), { type: 'conductor' }, 'w', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } })],
+    events: [evCall(iso(Date.now() - min(4)), { type: 'conductor' }, 'w', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }), ...horizonRows(Date.now() - min(3), 'w', 'c')],
   });
   const pub = path.join(s.root, 'public');
   fs.mkdirSync(path.join(pub, 'lib'), { recursive: true });
@@ -125,31 +125,4 @@ test('S6: HEAD /api/stream ends promptly with the event-stream headers and holds
   ctl.abort();
   assert.equal((await fetch(`${b.url}/api/stream`, { method: 'DELETE' })).status, 405);
   await b.close();
-});
-
-test('S2: a malformed backfill cache on disk leads to a rebuild and a 200 from api/gantt', async () => {
-  const s = makeStore({
-    sessions: { cccc0000: { ...sess({ id: 'cccc0000', backing: 'cb1' }) }, aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true, at: iso(Date.now() - min(5)) }) },
-    transcripts: { cb1: [
-      { type: 'assistant', timestamp: iso(Date.now() - min(3)), uuid: 'a', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'mcp__code-conductor__send_prompt', input: { sessionId: 'aaaa1111' } }] } },
-      { type: 'user', timestamp: iso(Date.now() - min(3)), uuid: 'r', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] } },
-    ] },
-  });
-  fs.mkdirSync(s.dataDir, { recursive: true });
-  fs.writeFileSync(path.join(s.dataDir, 'backfill.json'), JSON.stringify({ version: 1, files: { x: { size: 1, offset: 1, owner: 'cccc0000', pending: {}, calls: null, wakes: 7 } } }));
-  const pub = path.join(s.root, 'public');
-  fs.mkdirSync(pub);
-  fs.writeFileSync(path.join(pub, 'index.html'), '<title>t</title>');
-  const state = createState(s.config);
-  const live = createLive({ state, config: state.config, schedule: () => () => {} });
-  await state.refreshStores();
-  await state.runBackfill();
-  const server = http.createServer(createApp({ state, live, publicDir: pub }));
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/gantt`);
-  assert.equal(res.status, 200);
-  assert.ok((await res.json()).links.some((l) => l.source === 'backfill' && l.type === 'send_prompt'));
-  server.closeAllConnections();
-  await new Promise((r) => server.close(r));
-  s.cleanup();
 });

@@ -83,13 +83,3 @@ test('missing file gives missing:true and does not throw', async () => {
   assert.equal(r.missing, true);
   assert.deepEqual(r.lines, []);
 });
-
-test('prefilter skips non-matching lines without parsing them', async () => {
-  const t = tmp();
-  fs.writeFileSync(t.f, 'garbage not json NOPE\n{"hit":1}\n');
-  const r = await readFrom(t.f, 0, { filter: (s) => s.includes('hit') });
-  assert.deepEqual(r.lines.map((l) => l.value), [{ hit: 1 }]);
-  assert.equal(r.corrupt.length, 0);
-  assert.equal(r.offset, fs.statSync(t.f).size);
-  t.done();
-});
