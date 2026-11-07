@@ -14,8 +14,8 @@ Details: [docs/features.md](docs/features.md).
 ## Technical summary
 
 - Node ≥ 22.18, **no runtime dependencies**, no build step; plain ES-module frontend served as static files. `happy-dom` is the only devDependency (DOM/XSS tests).
-- Reads cc's store (`sessions.json`, `events.jsonl`, `costs.jsonl`) and conductor transcripts **read-only**; the only write location is `CONDUCTOR_PLUGIN_DATA_DIR`.
-- Links come from the event log where it names the caller, and are backfilled from transcripts for the time before. Turns come from the log's `turn` rows, and from `costs.jsonl` before the first one.
+- Reads cc's store (`sessions.json`, `events.jsonl`) **read-only** and writes nothing.
+- Links and turns come from the event log. Nothing before the **horizon** (the moment the log is complete for both) is drawn.
 
 Contracts: [docs/protocol.md](docs/protocol.md). Internals: [docs/architecture.md](docs/architecture.md).
 
@@ -23,7 +23,7 @@ Contracts: [docs/protocol.md](docs/protocol.md). Internals: [docs/architecture.m
 
 | Command | Purpose |
 |---|---|
-| `npm start` | Serve on `$PORT` (default 7300, loopback). Needs `PROJECTS_ROOT` and `CONDUCTOR_PLUGIN_DATA_DIR`; exits non-zero without the latter. |
+| `npm start` | Serve on `$PORT` (default 7300, loopback). Needs `PROJECTS_ROOT`; exits non-zero without it. |
 | `npm test` | Full suite against fixture stores only (clears the cc env vars first). |
 | `npm run harness` | Playwright golden path on a synthetic store; screenshots in `harness/playwright/screenshots/`. |
 | `npm run harness:real` | Renders the real store read-only; needs `CC_PROJECTS_ROOT`. |
@@ -31,8 +31,6 @@ Contracts: [docs/protocol.md](docs/protocol.md). Internals: [docs/architecture.m
 | Env var | Meaning |
 |---|---|
 | `PROJECTS_ROOT` | cc projects root; the store is `<root>/.code-conductor/`. |
-| `CONDUCTOR_PLUGIN_DATA_DIR` | The plugin's only writable directory (backfill cache). |
-| `CLAUDE_PROJECTS_ROOT` / `CLAUDE_CONFIG_DIR` / `HOME` | Transcript root: `CLAUDE_PROJECTS_ROOT`, else `<CLAUDE_CONFIG_DIR or $HOME/.claude>/projects`. |
 | `CONDUCTOR_URL` | cc base URL for liveness (`GET /api/instances`) and the `/ws` change hint. Unset → no bar is open-ended. |
 | `PORT` | Listen port. |
 
@@ -40,9 +38,7 @@ Install in cc: Settings → Plugins → Rescan → Enable. After a plugin code c
 
 ## Known limitations
 
-- Transcripts of remote projects are not scanned.
-- Sessions deleted from `sessions.json` are not shown. Their event-log rows and cost rows are dropped and counted in `diagnostics.unmatchedStoreRows` (shown in the footer); transcript-derived ids that cannot be resolved are counted in `diagnostics.unresolved`.
+- Nothing before the horizon is drawn; a store whose event log lacks a marker (a `wake` or an attributed `call`, and a `turn` row) draws nothing and the banner says so.
+- Sessions deleted from `sessions.json` are not shown. Their event-log rows are dropped and counted in `diagnostics.unmatchedStoreRows` (shown in the footer); ids that cannot be resolved are counted in `diagnostics.unresolved`.
 - Without a `session` exit (untracked exits, a host reboot) or liveness, a bar ends at an approximate end.
-- Migrated `call` rows carry no caller and draw no link; the transcript backfill covers that history.
-- The event log has no `turn` rows before its first one; turns before it come from `costs.jsonl`.
-- The first backfill scan runs in the background; links appear progressively.
+- A bar that spans the horizon starts at it, so its drawn start and duration are not its real ones.

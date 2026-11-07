@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-test('server.js exits non-zero with a clear message when CONDUCTOR_PLUGIN_DATA_DIR is unset', () => {
+test('server.js exits non-zero with a clear message when PROJECTS_ROOT is unset', () => {
   const r = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../../server.js')], {
-    env: { PATH: process.env.PATH, PROJECTS_ROOT: '/nonexistent-root-for-test' },
+    env: { PATH: process.env.PATH },
     encoding: 'utf8',
   });
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /CONDUCTOR_PLUGIN_DATA_DIR/);
+  assert.match(r.stderr, /PROJECTS_ROOT/);
 });
 
 import { spawn } from 'node:child_process';
@@ -20,12 +20,11 @@ async function freePort() {
   return new Promise((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 }
 
-async function bootServer(conductorUrl, prepare) {
+async function bootServer(conductorUrl) {
   const s = makeStore({ sessions: { cccc0000: sess({ id: 'cccc0000' }), aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true }) } });
-  prepare?.(s);
   const port = await freePort();
   const child = spawn(process.execPath, [path.resolve(import.meta.dirname, '../../server.js')], {
-    env: { PATH: process.env.PATH, PORT: String(port), PROJECTS_ROOT: s.projectsRoot, CLAUDE_PROJECTS_ROOT: s.transcriptRoot, CONDUCTOR_PLUGIN_DATA_DIR: s.dataDir, CONDUCTOR_URL: conductorUrl },
+    env: { PATH: process.env.PATH, PORT: String(port), PROJECTS_ROOT: s.projectsRoot, CONDUCTOR_URL: conductorUrl },
     stdio: 'ignore',
   });
   const url = `http://127.0.0.1:${port}`;
@@ -57,23 +56,4 @@ test('S1: a black-holed conductor does not delay listening or /api/health', asyn
   hole.close();
   assert.deepEqual(r.health, { ok: true });
   assert.equal(r.gantt.diagnostics.liveness, 'unavailable');
-});
-
-import fs from 'node:fs';
-import os from 'node:os';
-
-test('G4: a directory at the legacy cache path does not stop the server from booting', async () => {
-  const r = await bootServer('', (s) => { fs.mkdirSync(path.join(s.dataDir, 'backfill-v1.json'), { recursive: true }); });
-  assert.deepEqual(r.health, { ok: true });
-  assert.equal(r.gantt.diagnostics.liveness, 'unavailable');
-});
-
-test('G4: a symlink at the legacy cache path pointing outside the data dir does not stop the boot, and its target is untouched', async () => {
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gantt-outside-'));
-  const target = path.join(outside, 'precious.json');
-  fs.writeFileSync(target, 'keep me');
-  const r = await bootServer('', (s) => { fs.mkdirSync(s.dataDir, { recursive: true }); fs.symlinkSync(target, path.join(s.dataDir, 'backfill-v1.json')); });
-  assert.deepEqual(r.health, { ok: true });
-  assert.equal(fs.readFileSync(target, 'utf8'), 'keep me');
-  fs.rmSync(outside, { recursive: true, force: true });
 });

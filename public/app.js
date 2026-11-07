@@ -32,18 +32,17 @@ export function mount(root, api) {
     if (!p) return;
     const d = p.diagnostics;
     clear(banner);
-    if (d.backfill.state === 'scanning') banner.appendChild(text(`Backfilling interactions from transcripts… ${d.backfill.filesDone}/${d.backfill.filesTotal} files`));
+    if (d.horizon == null) banner.appendChild(text('The event log has no complete history yet: nothing is drawn.'));
     clear(diag);
     diag.appendChild(text([
       `liveness: ${d.liveness}${d.liveness === 'unavailable' ? ' (no open-ended bars)' : ''}`,
-      `backfill cutoff: ${d.cutoff ?? 'none'}`,
+      `history from: ${d.horizon ?? 'none'}`,
       `unresolved ids: ${d.unresolved}`,
-      `rows of deleted sessions: ${d.unmatchedStoreRows.events} events, ${d.unmatchedStoreRows.costs} cost`,
+      `rows of deleted sessions: ${d.unmatchedStoreRows.events} events`,
       `unknown event kinds: ${Object.values(d.unknownKinds).reduce((a, b) => a + b, 0)}`,
       `unknown tools (shown as other): ${Object.values(d.unknownTools).reduce((a, b) => a + b, 0)}`,
       `corrupt lines: ${d.corruptLines}`,
       d.otherVersionRows > 0 ? `other-version rows: ${d.otherVersionRows}` : null,
-      d.backfill.droppedMarkers ? `dropped wake markers: ${d.backfill.droppedMarkers}` : null,
       d.missing.length ? `missing: ${d.missing.join(', ')}` : null,
       ...d.errors,
     ].filter(Boolean).join('  ·  ')));

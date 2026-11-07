@@ -26,7 +26,6 @@ server.listen(port, '127.0.0.1', () => {
   console.log(`[code-gantt] listening on http://127.0.0.1:${port}`);
   // Live wiring (liveness fetch, /ws, polling) starts only after the server is accepting requests.
   live.start().catch((err) => console.error('[code-gantt] live refresh failed to start:', err));
-  state.runBackfill().catch((err) => console.error('[code-gantt] backfill failed:', err));
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

@@ -59,7 +59,7 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
   if (config.conductorUrl && !base) console.warn('[code-gantt] CONDUCTOR_URL is not a valid http(s) URL: ignoring it, liveness unavailable');
   const events = new EventEmitter();
   state.onVersion = (v) => events.emit('changed', v);
-  const storeFiles = ['sessions.json', 'events.jsonl', 'costs.jsonl'].map((f) => path.join(config.storeDir, f));
+  const storeFiles = ['sessions.json', 'events.jsonl'].map((f) => path.join(config.storeDir, f));
   let lastSig = null;
   let stopped = false;
   let cancelPoll = null;
@@ -91,19 +91,6 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
     }
   }
 
-  /** Backfill files of live owners whose size moved since the last scan. */
-  function backfillStale() {
-    return Promise.all(Object.entries(state.backfill.files)
-      .filter(([, st]) => state.liveSet?.has(st.owner))
-      .map(async ([file, st]) => {
-        try {
-          return (await fs.stat(file)).size !== st.size;
-        } catch {
-          return false;
-        }
-      })).then((flags) => flags.some(Boolean));
-  }
-
   // One poll at a time. A call made mid-poll waits for the current run, and a follow-up run is
   // queued so a change that landed meanwhile is not lost.
   let inflight = null;
@@ -126,10 +113,8 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
     const sig = await statSig(storeFiles);
     const storeChanged = sig !== lastSig;
     lastSig = sig;
-    const transcriptsChanged = !storeChanged && (await backfillStale());
-    if (!storeChanged && !transcriptsChanged) return;
-    if (storeChanged) await state.refreshStores();
-    await state.backfill.scan(state.sessions.byId);
+    if (!storeChanged) return;
+    await state.refreshStores();
     state.bump();
   }
 

@@ -18,11 +18,11 @@ const payload = () => ({
     r: S('r', 0, 9000), a1: S('a1', 100, 900), b1: S('b1', 5000, 6000), r2: S('r2', 0, 9000), b2: S('b2', 100, 200),
   },
   links: [
-    { ts: 150, type: 'spawn', from: 'r', to: 'a1', source: 'store' },
-    { ts: 5100, type: 'send_prompt', from: 'r', to: 'b1', source: 'backfill' },
-    { ts: 5200, type: 'wake', from: 'b1', to: 'r', source: 'store' },
-    { ts: 5300, type: 'wake', from: 'b1', to: 'r', source: 'store', heartbeat: true },
-    { ts: 160, type: 'spawn', from: 'r2', to: 'b2', source: 'store' },
+    { ts: 150, type: 'spawn', from: 'r', to: 'a1' },
+    { ts: 5100, type: 'send_prompt', from: 'r', to: 'b1' },
+    { ts: 5200, type: 'wake', from: 'b1', to: 'r' },
+    { ts: 5300, type: 'wake', from: 'b1', to: 'r', heartbeat: true },
+    { ts: 160, type: 'spawn', from: 'r2', to: 'b2' },
   ],
 });
 const ids = (res) => res.rows.filter((r) => r.kind === 'row').map((r) => r.id);

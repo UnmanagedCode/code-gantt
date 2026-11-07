@@ -24,7 +24,7 @@ function linkLines(l, payload) {
   const a = payload.sessions[l.from];
   const b = payload.sessions[l.to];
   return [
-    `${l.type}${l.heartbeat ? ' (heartbeat)' : ''}  ·  ${l.source}`,
+    `${l.type}${l.heartbeat ? ' (heartbeat)' : ''}`,
     `${labelOf(a)} → ${labelOf(b)}`,
     fmtTime(l.ts),
   ];
@@ -129,7 +129,7 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
   const linkLayer = svgEl('g', { class: 'links' });
   for (const l of layout.links) {
     const x = X(l.ts);
-    const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type, 'data-source': l.source });
+    const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type });
     lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
     lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: l.y2, r: 3.5 }));
     lg.appendChild(svgEl('circle', { class: 'link-hit', cx: x, cy: l.y2, r: 7 }));

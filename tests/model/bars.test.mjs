@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBar, KILL_AFTER_EXIT_MS } from '../../src/model/bars.js';
+import { buildBar, clipToHorizon, KILL_AFTER_EXIT_MS } from '../../src/model/bars.js';
 import { sess, iso, T0, min } from '../helpers/store.mjs';
 
 const rec = (over = {}) => ({ id: 'w', ...sess({ id: 'w', parent: 'c', project: 'p', conducted: true, ...over }) });
@@ -137,4 +137,62 @@ test('marks hold only non-ending exit/resume rows: the ending exit is excluded, 
   assert.deepEqual(bar(rec(), { own: [...earlier, byConductor] }).marks, want);
   const byLink = bar(rec(), { own: [...earlier, ending], kills: [ending.ts + 5] });
   assert.deepEqual([byLink.endKind, byLink.marks], ['killed', want]);
+});
+
+// ---- clipToHorizon: bars are built from the whole log, then clipped for drawing ----
+const H = T0 + min(100);
+const built = (over = {}) => ({
+  id: 'w', start: T0, end: T0 + min(200), endKind: 'exited', turns: [], turnCount: 3,
+  rotations: [], stages: [], marks: [], ...over,
+});
+
+// B1: the clipped start, the strict-before drop, and the kept boundary at exactly the horizon.
+test('clipToHorizon: a bar spanning the horizon starts at it; marks and rotations before it are dropped, those at it kept', () => {
+  const b = clipToHorizon(built({
+    marks: [{ at: H - 1, kind: 'exit' }, { at: H, kind: 'resume' }, { at: H + 1, kind: 'exit' }],
+    rotations: [{ at: H - 1, reason: 'renew' }, { at: H, reason: 'prune' }],
+  }), H);
+  assert.equal(b.start, H);
+  assert.equal(b.end, T0 + min(200));
+  assert.deepEqual(b.marks, [{ at: H, kind: 'resume' }, { at: H + 1, kind: 'exit' }]);
+  assert.deepEqual(b.rotations, [{ at: H, reason: 'prune' }]);
+});
+
+// B2: the state held at the horizon is the one folded from pre-horizon bind/move rows.
+test('clipToHorizon carries in the stage held at the horizon, with its via and the playbook; bands ended at or before it are dropped', () => {
+  const b = clipToHorizon(built({
+    playbook: 'classic',
+    stages: [
+      { stage: 'plan', from: T0 + min(5), to: T0 + min(50) },
+      { stage: 'implement', from: T0 + min(50), to: H, via: 'approve_plan' },
+      { stage: 'review', from: H - min(10), to: H + min(20), via: 'send_prompt' },
+      { stage: 'done', from: H + min(20), to: T0 + min(200), via: 'approve_plan' },
+    ],
+  }), H);
+  assert.deepEqual(b.stages, [
+    { stage: 'review', from: H, to: H + min(20), via: 'send_prompt' },
+    { stage: 'done', from: H + min(20), to: T0 + min(200), via: 'approve_plan' },
+  ]);
+  assert.equal(b.playbook, 'classic');
+});
+
+// B3: no-op past the horizon; a live bar stays open.
+test('clipToHorizon leaves a bar wholly after the horizon unchanged, and clips a live bar (end null) without closing it', () => {
+  const after = built({ start: H + min(5), marks: [{ at: H + min(6), kind: 'exit' }], stages: [{ stage: 'plan', from: H + min(5), to: T0 + min(200) }] });
+  assert.deepEqual(clipToHorizon(after, H), after);
+  const live = clipToHorizon(built({ end: null, endKind: 'live', stages: [{ stage: 'plan', from: T0, to: null }] }), H);
+  assert.equal(live.end, null);
+  assert.equal(live.start, H);
+  assert.deepEqual(live.stages, [{ stage: 'plan', from: H, to: null }]);
+});
+
+// B4: a bar ending before the horizon draws nothing and is never inverted (start <= end).
+test('clipToHorizon keeps start and end of a bar that ends before the horizon and empties its marks, rotations, stages and turns', () => {
+  const b = clipToHorizon(built({
+    end: H - min(10), endKind: 'killed', turns: [[T0, T0 + min(5)]],
+    marks: [{ at: T0 + min(3), kind: 'exit' }], rotations: [{ at: T0 + min(2), reason: 'renew' }],
+    stages: [{ stage: 'plan', from: T0, to: H - min(10) }],
+  }), H);
+  assert.deepEqual([b.start, b.end, b.endKind], [T0, H - min(10), 'killed']);
+  assert.deepEqual([b.marks, b.rotations, b.stages, b.turns], [[], [], [], []]);
 });

@@ -18,8 +18,6 @@ const srv = await bootServer({
   entry: 'server.js',
   env: {
     PROJECTS_ROOT: store.projectsRoot,
-    CLAUDE_PROJECTS_ROOT: store.transcriptRoot,
-    CONDUCTOR_PLUGIN_DATA_DIR: store.dataDir,
     CONDUCTOR_URL: '',
   },
 });
@@ -30,12 +28,22 @@ try {
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.goto(srv.url);
     await page.waitForSelector('svg.chart');
-    await page.waitForFunction(() => !document.querySelector('.banner')?.textContent);
-    await page.reload(); // pick up the finished backfill
-    await page.waitForSelector('svg.chart .link-g[data-source="backfill"]');
+    await page.waitForSelector('svg.chart .link-g');
     await page.waitForFunction(() => !document.querySelector('.banner')?.textContent);
     await page.waitForTimeout(600); // let SSE-triggered reloads settle
     await page.screenshot({ path: path.join(shots, '01-load.png'), fullPage: true });
+
+    // The horizon: the tree wholly before it is absent; bars spanning it start at it.
+    const payload = await (await fetch(`${srv.url}/api/gantt`)).json();
+    const horizon = Date.parse(payload.diagnostics.horizon);
+    assert.equal(payload.window.from, horizon, 'window starts at the horizon');
+    assert.equal(await page.locator('.bar-g[data-id="a0000006"]').count(), 0, 'pre-horizon tree absent');
+    assert.equal(await page.locator('.project-label', { hasText: 'gamma' }).count(), 0, 'pre-horizon project absent');
+    assert.equal(payload.sessions.a0000002.start, horizon);
+    assert.ok(payload.links.every((l) => l.ts >= horizon), 'no link before the horizon');
+    const x = async (id) => (await page.locator(`.bar-g[data-id="${id}"] .bar`).first().boundingBox()).x;
+    assert.ok(Math.abs((await x('a0000002')) - (await x('a0000003'))) < 1.5, 'spanning bars start at the same x, the horizon');
+    assert.match(await page.textContent('.diagnostics'), /history from/);
 
     await page.click('.bar-g[data-id="a0000002"] .bar');
     assert.match(await page.textContent('#details'), /Alpha implementer/);
@@ -59,7 +67,6 @@ try {
 
     const types = new Set(await page.$$eval('.link-g', (n) => n.map((x) => x.dataset.type)));
     for (const t of ['spawn', 'send_prompt', 'forward', 'wake', 'kill_instance', 'other']) assert.ok(types.has(t), `link type ${t} drawn`);
-    assert.equal(await page.locator('.link-g[data-source="backfill"]').count() > 0, true);
 
     await page.uncheck('input[name="link:wake"]');
     await page.uncheck('input[name="heartbeat"]');

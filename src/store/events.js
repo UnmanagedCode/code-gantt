@@ -48,14 +48,25 @@ export class EventLogReader {
     this.file = file;
     this.offset = 0;
     this.events = [];
-    this.cutoffTs = null; // first wake, or first call naming its caller: the transcript-backfill boundary
-    this.turnCutoffTs = null; // first `turn` row: costs.jsonl turns apply before it
+    this.#firstLinkTs = null;
+    this.#firstTurnTs = null;
     this.unknown = new Map(); // a Map: kinds come from the file and may be named like Object.prototype members
     this.corruptLines = 0;
     this.otherVersionRows = 0;
     this.warnedVersion = false;
     this.missing = false;
     this.serialize = createSerializer();
+  }
+
+  #firstLinkTs; // first wake, or first call naming its caller: links are complete from here
+  #firstTurnTs; // first `turn` row: turns are complete from here
+
+  /**
+   * The moment the log is complete for both links and turns: the later of its first wake-or-attributed-call
+   * row and its first `turn` row. `null` while either is missing. Nothing before it is drawn.
+   */
+  get horizonTs() {
+    return this.#firstLinkTs == null || this.#firstTurnTs == null ? null : Math.max(this.#firstLinkTs, this.#firstTurnTs);
   }
 
   /** Unknown kinds seen so far: `{kind: count}`. */
@@ -73,8 +84,8 @@ export class EventLogReader {
     this.missing = r.missing;
     if (r.reset) {
       this.events = [];
-      this.cutoffTs = null;
-      this.turnCutoffTs = null;
+      this.#firstLinkTs = null;
+      this.#firstTurnTs = null;
       this.unknown = new Map();
       this.corruptLines = 0;
       this.otherVersionRows = 0;
@@ -102,8 +113,8 @@ export class EventLogReader {
       if (kind === 'config') continue;
       const ev = normalise(value, kind);
       if (Number.isFinite(ev.ts)) {
-        if (this.cutoffTs == null && (kind === 'wake' || (kind === 'call' && ev.actor.sessionId))) this.cutoffTs = ev.ts;
-        if (this.turnCutoffTs == null && kind === 'turn') this.turnCutoffTs = ev.ts;
+        if (this.#firstLinkTs == null && (kind === 'wake' || (kind === 'call' && ev.actor.sessionId))) this.#firstLinkTs = ev.ts;
+        if (this.#firstTurnTs == null && kind === 'turn') this.#firstTurnTs = ev.ts;
       }
       this.events.push(ev);
       added.push(ev);
