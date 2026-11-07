@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyFilters, defaultFilters, ROW_H } from '../../public/lib/layout.js';
 
-const S = (id, start, end, extra = {}) => ({ id, start, end, endKind: 'retired', turns: [], stages: [], rotations: [], marks: [], turnCount: 0, ...extra });
+const S = (id, start, end, extra = {}) => ({ id, start, end, endKind: 'exited', turns: [], stages: [], rotations: [], marks: [], turnCount: 0, ...extra });
 const payload = () => ({
   now: 10_000,
   window: { from: 0, to: 10_000 },
@@ -18,11 +18,11 @@ const payload = () => ({
     r: S('r', 0, 9000), a1: S('a1', 100, 900), b1: S('b1', 5000, 6000), r2: S('r2', 0, 9000), b2: S('b2', 100, 200),
   },
   links: [
-    { ts: 150, type: 'spawn', from: 'r', to: 'a1', source: 'ledger' },
+    { ts: 150, type: 'spawn', from: 'r', to: 'a1', source: 'store' },
     { ts: 5100, type: 'send_prompt', from: 'r', to: 'b1', source: 'backfill' },
-    { ts: 5200, type: 'wake', from: 'b1', to: 'r', source: 'ledger' },
-    { ts: 5300, type: 'wake', from: 'b1', to: 'r', source: 'ledger', heartbeat: true },
-    { ts: 160, type: 'spawn', from: 'r2', to: 'b2', source: 'ledger' },
+    { ts: 5200, type: 'wake', from: 'b1', to: 'r', source: 'store' },
+    { ts: 5300, type: 'wake', from: 'b1', to: 'r', source: 'store', heartbeat: true },
+    { ts: 160, type: 'spawn', from: 'r2', to: 'b2', source: 'store' },
   ],
 });
 const ids = (res) => res.rows.filter((r) => r.kind === 'row').map((r) => r.id);

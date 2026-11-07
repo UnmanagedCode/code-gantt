@@ -5,8 +5,8 @@ A [code-conductor](https://github.com) (cc) plugin that shows conducted session 
 ## What it shows
 
 - **Rows:** a conductor and its workers (nested leads included), one bar per session. A tree that touches several projects appears under each of them; ancestors outside the group are dimmed.
-- **Bars:** start → end. The end is `retired`, `killed`, `live`, or **approximate** (hatched tail + "approximate end" in tooltip and details). Turn segments, renew/prune rotation markers and playbook stage bands are drawn on the bar.
-- **Links:** typed connectors between sessions at the time of the interaction (spawn, prompts, forwards, plan approve/reject, answers, interrupts, kills, mode/idle-timeout/renew/prune, wakes). Unknown ledger tools show as `other`.
+- **Bars:** start → end. The end is `exited`, `killed`, `live`, or **approximate** (hatched tail + "approximate end" in tooltip and details). Turn segments, renew/prune rotation markers and playbook stage bands are drawn on the bar.
+- **Links:** typed connectors between sessions at the time of the interaction (spawn, prompts, forwards, plan approve/reject, answers, interrupts, kills, mode/idle-timeout/renew/prune, wakes). Unknown tools show as `other`.
 - **Controls:** date range, project, tree and link-type filters; a separate toggle for heartbeat wakes; wheel zoom and drag pan; click a bar for details.
 
 Details: [docs/features.md](docs/features.md).
@@ -14,8 +14,8 @@ Details: [docs/features.md](docs/features.md).
 ## Technical summary
 
 - Node ≥ 22.18, **no runtime dependencies**, no build step; plain ES-module frontend served as static files. `happy-dom` is the only devDependency (DOM/XSS tests).
-- Reads cc's store (`sessions.json`, `playbook-ledger.jsonl`, `costs.jsonl`) and conductor transcripts **read-only**; the only write location is `CONDUCTOR_PLUGIN_DATA_DIR`.
-- Interactions come from the ledger where it records them and are backfilled from transcripts for the time before.
+- Reads cc's store (`sessions.json`, `events.jsonl`, `costs.jsonl`) and conductor transcripts **read-only**; the only write location is `CONDUCTOR_PLUGIN_DATA_DIR`.
+- Links come from the event log where it names the caller, and are backfilled from transcripts for the time before. Turns come from the log's `turn` rows, and from `costs.jsonl` before the first one.
 
 Contracts: [docs/protocol.md](docs/protocol.md). Internals: [docs/architecture.md](docs/architecture.md).
 
@@ -41,6 +41,8 @@ Install in cc: Settings → Plugins → Rescan → Enable. After a plugin code c
 ## Known limitations
 
 - Transcripts of remote projects are not scanned.
-- Sessions deleted from `sessions.json` are not shown. Their ledger events and cost rows are dropped and counted in `diagnostics.unmatchedStoreRows` (shown in the footer); transcript-derived ids that cannot be resolved are counted in `diagnostics.unresolved`.
-- Without ledger `retire` events (untracked exits) or liveness, a bar ends at an approximate end.
+- Sessions deleted from `sessions.json` are not shown. Their event-log rows and cost rows are dropped and counted in `diagnostics.unmatchedStoreRows` (shown in the footer); transcript-derived ids that cannot be resolved are counted in `diagnostics.unresolved`.
+- Without a `session` exit (untracked exits, a host reboot) or liveness, a bar ends at an approximate end.
+- Migrated `call` rows carry no caller and draw no link; the transcript backfill covers that history.
+- The event log has no `turn` rows before its first one; turns before it come from `costs.jsonl`.
 - The first backfill scan runs in the background; links appear progressively.

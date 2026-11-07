@@ -14,7 +14,7 @@ const EVIL = '<img src=x onerror=alert(1)>';
 const EVIL2 = '"><script>x</script>';
 
 function payload(over = {}) {
-  const s = (id, extra) => ({ id, start: 1000, end: 9000, endKind: 'retired', turns: [[2000, 3000]], turnCount: 4, rotations: [{ at: 5000, reason: 'renew' }], stages: [{ stage: 'plan', from: 1000, to: 5000 }, { stage: 'implement', from: 5000, to: 9000, via: 'approve_plan' }], marks: [], ...extra });
+  const s = (id, extra) => ({ id, start: 1000, end: 9000, endKind: 'exited', turns: [[2000, 3000]], turnCount: 4, rotations: [{ at: 5000, reason: 'renew' }], stages: [{ stage: 'plan', from: 1000, to: 5000 }, { stage: 'implement', from: 5000, to: 9000, via: 'approve_plan' }], marks: [], ...extra });
   return {
     now: 10_000, window: { from: 0, to: 10_000 }, version: 1,
     linkTypes: ['spawn', 'send_prompt', 'forward', 'wake', 'other'],
@@ -25,11 +25,11 @@ function payload(over = {}) {
       w2: s('w2', { title: 'Worker two', project: 'proj', endKind: 'approx', end: 9500 }),
     },
     links: [
-      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', source: 'ledger', body: S, text: S },
+      { ts: 1500, type: 'spawn', from: 'root', to: 'w1', source: 'store', body: S, text: S },
       { ts: 6000, type: 'wake', from: 'w1', to: 'root', source: 'backfill' },
       { ts: 6500, type: 'wake', from: 'w2', to: 'root', source: 'backfill', heartbeat: true },
     ],
-    diagnostics: { liveness: 'unavailable', backfill: { state: 'ready', filesDone: 1, filesTotal: 1 }, cutoff: null, unresolved: 0, unmatchedStoreRows: { ledger: 0, costs: 0 }, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
+    diagnostics: { liveness: 'unavailable', backfill: { state: 'ready', filesDone: 1, filesTotal: 1 }, cutoff: null, unresolved: 0, unmatchedStoreRows: { events: 0, costs: 0 }, unknownTools: {}, unknownKinds: {}, corruptLines: 0, missing: [], errors: [] },
     ...over,
   };
 }
@@ -53,14 +53,14 @@ test('dom.js refuses event-handler, style and URL attributes', () => {
 
 test('XSS: hostile id, title, project, worktree, model, stage, via and tool render as text only', async () => {
   const p = payload();
-  p.sessions[EVIL] = { ...p.sessions.w2, id: EVIL, endKind: 'retired', title: undefined };
+  p.sessions[EVIL] = { ...p.sessions.w2, id: EVIL, endKind: 'exited', title: undefined };
   p.projects[0].trees[0].rows.push({ id: EVIL, depth: 1, context: false });
-  p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL, source: 'ledger' });
+  p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL, source: 'store' });
   p.projects[0].project = EVIL;
   p.sessions.w1 = { ...p.sessions.w1, id: 'w1', title: EVIL2, project: EVIL, worktree: EVIL, model: EVIL2, playbook: EVIL,
     stages: [{ stage: EVIL, from: 1000, to: 9000, via: EVIL2 }] };
   p.linkTypes.push(EVIL);
-  p.links.push({ ts: 7000, type: EVIL, from: 'root', to: 'w1', source: 'ledger' });
+  p.links.push({ ts: 7000, type: EVIL, from: 'root', to: 'w1', source: 'store' });
   const { root, app } = boot(p);
   await app.load();
   click(root.querySelector('[data-id="w1"]'));
@@ -78,7 +78,7 @@ test('XSS: hostile id, title, project, worktree, model, stage, via and tool rend
   assert.ok(root.textContent.includes(EVIL));
 });
 
-test('an approx bar exposes "approximate end"; a retired bar does not', async () => {
+test('an approx bar exposes "approximate end"; an exited bar does not', async () => {
   const { root, app } = boot(payload());
   await app.load();
   const labelled = (id) => [...root.querySelectorAll(`[data-id="${id}"] [aria-label="approximate end"]`)];
@@ -135,7 +135,7 @@ test('C6: free-text fields outside the payload schema are never rendered (page, 
 
 test('R5: a selection named like an Object.prototype member that vanishes from the payload falls back to the hint, not garbage', async () => {
   const p = payload();
-  p.sessions.constructor = { ...p.sessions.w2, id: 'constructor', endKind: 'retired' };
+  p.sessions.constructor = { ...p.sessions.w2, id: 'constructor', endKind: 'exited' };
   p.projects[0].trees[0].rows.push({ id: 'constructor', depth: 1, context: false });
   const { root, app } = boot(p);
   await app.load();

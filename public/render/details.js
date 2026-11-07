@@ -1,7 +1,7 @@
 import { el, clear } from '../lib/dom.js';
 import { fmtTime, labelOf } from '../lib/format.js';
 
-const END_LABELS = new Map([['retired', 'retired'], ['killed', 'killed'], ['live', 'live'], ['approx', '≈ approximate end']]);
+const END_LABELS = new Map([['exited', 'exited'], ['killed', 'killed'], ['live', 'live'], ['approx', '≈ approximate end']]);
 export const endLabel = (kind) => END_LABELS.get(kind) ?? String(kind);
 
 function row(dt, dd) {
@@ -16,7 +16,7 @@ export function renderDetails(host, s) {
     return;
   }
   const end = s.endKind === 'approx'
-    ? `${fmtTime(s.end)} (≈ approximate end: no retire event, not live)`
+    ? `${fmtTime(s.end)} (≈ approximate end: no exit row, not live)`
     : s.endKind === 'live' ? 'live (still running)' : `${fmtTime(s.end)}${s.endReason ? ` (${s.endReason})` : ''}`;
   host.appendChild(el('h2', null, labelOf(s)));
   host.appendChild(el('dl', null,

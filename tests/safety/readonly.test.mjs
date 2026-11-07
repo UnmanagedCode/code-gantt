@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { makeStore, snapshotDir, sess, iso, min } from '../helpers/store.mjs';
+import { makeStore, snapshotDir, sess, iso, min, evCall, evSession, SYSTEM } from '../helpers/store.mjs';
 import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
 import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
@@ -13,7 +13,7 @@ test('a full app run changes nothing in the store or transcript root; every new 
   const now = Date.now();
   const s = makeStore({
     sessions: { cccc0000: { ...sess({ id: 'cccc0000', backing: 'cb1' }) }, aaaa1111: sess({ id: 'aaaa1111', parent: 'cccc0000', project: 'p', conducted: true, at: iso(now - min(5)) }) },
-    ledger: [{ ts: iso(now - min(4)), kind: 'spawn', sessionId: 'aaaa1111', stage: 'plan' }],
+    events: [evCall(iso(now - min(4)), { type: 'conductor' }, 'aaaa1111', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } })],
     costs: [{ ts: now - min(3), duration_ms: 1000, sessionId: 'aaaa1111' }],
     transcripts: { cb1: [{ type: 'user', timestamp: iso(now - min(2)), uuid: 'u', message: { content: [{ type: 'text', text: `[[cc:wake-callback]]Worker \`aaaa1111\` finished.\n[[cc:wake-body]]${S}` }] } }] },
   });
@@ -36,11 +36,11 @@ test('a full app run changes nothing in the store or transcript root; every new 
   assert.equal(state.backfill.status().state, 'ready');
   await (await fetch(`${url}/api/gantt`)).json();
 
-  const appended = s.files.ledger;
-  s.appendLedger({ ts: iso(now - min(1)), kind: 'retire', sessionId: 'aaaa1111', reason: 'x' });
+  const appended = s.files.events;
+  s.appendEvents(evSession(iso(now - min(1)), SYSTEM, 'aaaa1111', 'exit', { cause: 'exited' }));
   await live.poll();
   const p = await (await fetch(`${url}/api/gantt`)).json();
-  assert.equal(p.sessions.aaaa1111.endKind, 'retired');
+  assert.equal(p.sessions.aaaa1111.endKind, 'exited');
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
   live.stop();

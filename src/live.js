@@ -59,7 +59,7 @@ export function createLive({ state, config, fetch: fetchImpl = globalThis.fetch,
   if (config.conductorUrl && !base) console.warn('[code-gantt] CONDUCTOR_URL is not a valid http(s) URL: ignoring it, liveness unavailable');
   const events = new EventEmitter();
   state.onVersion = (v) => events.emit('changed', v);
-  const storeFiles = ['sessions.json', 'playbook-ledger.jsonl', 'costs.jsonl'].map((f) => path.join(config.storeDir, f));
+  const storeFiles = ['sessions.json', 'events.jsonl', 'costs.jsonl'].map((f) => path.join(config.storeDir, f));
   let lastSig = null;
   let stopped = false;
   let cancelPoll = null;

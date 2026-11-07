@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, sess, iso, T0, min } from '../helpers/store.mjs';
+import { makeStore, sess, iso, T0, min, evCall, evSession, SYSTEM } from '../helpers/store.mjs';
 import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 
@@ -9,7 +9,7 @@ const POLL_MS = 5000;
 function rig({ conductorUrl = 'http://cc.test', rows = [], fetchFails = false, connectThrows = false, fetchImpl: customFetch, timeoutMs } = {}) {
   const s = makeStore({
     sessions: { c: sess({ id: 'c' }), w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true }) },
-    ledger: [{ ts: iso(T0), kind: 'spawn', sessionId: 'w', stage: 'plan' }],
+    events: [evCall(iso(T0), { type: 'conductor' }, 'w', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } })],
   });
   const state = createState({ ...s.config, conductorUrl });
   const timers = [];
@@ -49,17 +49,17 @@ test('an instances hint re-fetches liveness and emits changed once (debounced)',
   r.live.stop(); r.s.cleanup();
 });
 
-test('a ledger append detected by poll emits changed; an unchanged poll does not', async () => {
+test('an event-log append detected by poll emits changed; an unchanged poll does not', async () => {
   const r = rig({ conductorUrl: '' });
   await r.live.start();
   await r.state.refreshStores();
   const base = r.changes.length;
   await r.live.poll();
   assert.equal(r.changes.length, base);
-  r.s.appendLedger({ ts: iso(T0 + min(1)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  r.s.appendEvents(evSession(iso(T0 + min(1)), SYSTEM, 'w', 'exit'));
   await r.live.poll();
   assert.equal(r.changes.length, base + 1);
-  assert.equal(r.state.ledger.events.at(-1).kind, 'retire');
+  assert.equal(r.state.events.events.at(-1).event, 'exit');
   r.live.stop(); r.s.cleanup();
 });
 
@@ -100,15 +100,15 @@ test('C5: a poll issued while another is in flight waits for it and sees the dat
   const r = rig({ conductorUrl: '' });
   await r.live.start();
   await r.state.refreshStores();
-  const base = r.state.ledger.events.length;
-  r.s.appendLedger({ ts: iso(T0 + min(2)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  const base = r.state.events.events.length;
+  r.s.appendEvents(evSession(iso(T0 + min(2)), SYSTEM, 'w', 'exit'));
   const p1 = r.live.poll();
   const p2 = r.live.poll();
   await p2;
-  assert.equal(r.state.ledger.events.length, base + 1);
+  assert.equal(r.state.events.events.length, base + 1);
   await p1;
   await Promise.all([r.state.refreshStores(), r.state.refreshStores()]);
-  assert.equal(r.state.ledger.events.length, base + 1);
+  assert.equal(r.state.events.events.length, base + 1);
   r.live.stop(); r.s.cleanup();
 });
 
@@ -116,12 +116,12 @@ test('C5: a change landing during a poll triggers a follow-up poll, not a lost u
   const r = rig({ conductorUrl: '' });
   await r.live.start();
   await r.state.refreshStores();
-  const base = r.state.ledger.events.length;
-  r.s.appendLedger({ ts: iso(T0 + min(2)), kind: 'retire', sessionId: 'w', reason: 'x' });
+  const base = r.state.events.events.length;
+  r.s.appendEvents(evSession(iso(T0 + min(2)), SYSTEM, 'w', 'exit'));
   const p1 = r.live.poll();
-  r.s.appendLedger({ ts: iso(T0 + min(3)), kind: 'resume', sessionId: 'w' });
+  r.s.appendEvents(evSession(iso(T0 + min(3)), SYSTEM, 'w', 'resume'));
   await Promise.all([p1, r.live.poll()]);
-  assert.equal(r.state.ledger.events.length, base + 2);
+  assert.equal(r.state.events.events.length, base + 2);
   r.live.stop(); r.s.cleanup();
 });
 

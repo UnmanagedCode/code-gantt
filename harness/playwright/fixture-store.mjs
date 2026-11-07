@@ -1,5 +1,5 @@
 // A rich synthetic cc store for the golden-path harness (times are relative to "now").
-import { makeStore, sess, iso } from '../../tests/helpers/store.mjs';
+import { makeStore, sess, iso, evCall, evSession, evTurn, evWake, SYSTEM, HUMAN } from '../../tests/helpers/store.mjs';
 
 const H = 3600_000;
 const M = 60_000;
@@ -21,25 +21,41 @@ export function buildFixture(now = Date.now()) {
     a0000004: sess({ id: 'a0000004', title: 'Beta approx-end worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(36)), backing: 'bk-4' }),
     a0000005: sess({ id: 'a0000005', title: 'Beta recent worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(12)), backing: 'bk-5' }),
   };
-  const ev = (h, o) => ({ ts: iso(t(h)), ...o });
-  const ledger = [
-    ev(66, { kind: 'spawn', sessionId: '1ead0001', playbook: 'split', stage: 'plan' }),
-    ev(64, { kind: 'spawn', sessionId: 'a0000002', playbook: 'classic', stage: 'plan' }),
-    ev(60, { kind: 'spawn', sessionId: 'a0000001', playbook: 'classic', stage: 'implement' }),
-    ev(58, { kind: 'transition', sessionId: 'a0000002', from: 'plan', to: 'implement', via: 'approve_plan' }),
-    ev(50, { kind: 'spawn', sessionId: 'a0000003', playbook: 'classic', stage: 'implement' }),
-    ev(46, { kind: 'transition', sessionId: 'a0000002', from: 'implement', to: 'review', via: 'send_prompt', forwardSessionId: 'a0000001' }),
-    ev(36, { kind: 'spawn', sessionId: 'a0000004', playbook: 'classic', stage: 'plan' }),
-    ev(34, { kind: 'retire', sessionId: 'a0000002', reason: 'stage complete' }),
-    ev(30, { kind: 'retire', sessionId: 'a0000001', reason: 'subprocess exited' }),
-    // cc writes the retire first, then the kill interaction a few ms later
-    ev(19, { kind: 'retire', sessionId: 'a0000003', reason: 'killed' }),
-    { ts: iso(t(19) + 8), kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'a0000003', tool: 'kill_instance' },
-    ev(15, { kind: 'wake', conductorSessionId: 'c0000001', sessionId: 'a0000005' }),
-    ev(14, { kind: 'wake', conductorSessionId: 'c0000001', sessionId: 'a0000005', heartbeat: true }),
-    ev(13, { kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'a0000005', tool: 'set_mode' }),
-    ev(11, { kind: 'interaction', conductorSessionId: 'c0000001', sessionId: 'a0000005', tool: 'frobnicate' }),
-    ev(9, { kind: 'refusal', tool: 'spawn_instance' }),
+  // Shaped like cc's events.jsonl (docs/event-log.md). Rows before the first attributed call (t(19)) have
+  // the migrated shape: no caller on calls, system actors, no turn rows.
+  const migrated = { type: 'conductor' };
+  const C = 'c0000001';
+  const events = [
+    evCall(t(66), migrated, '1ead0001', 'spawn_instance', { bind: { playbook: 'split', stage: 'plan' } }),
+    evCall(t(64), migrated, 'a0000002', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
+    evCall(t(60), migrated, 'a0000001', 'spawn_instance', { bind: { playbook: 'classic', stage: 'implement' } }),
+    evCall(t(58), migrated, 'a0000002', 'approve_plan', { move: { from: 'plan', to: 'implement' } }),
+    evCall(t(50), migrated, 'a0000003', 'spawn_instance', { bind: { playbook: 'classic', stage: 'implement' } }),
+    evCall(t(46), migrated, 'a0000002', 'send_prompt', { forward: 'a0000001', move: { from: 'implement', to: 'review' } }),
+    evCall(t(36), migrated, 'a0000004', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
+    evCall(t(27), migrated, 'a0000004', 'send_prompt'), // migrated, no caller: draws nothing
+    evSession(t(40.1), SYSTEM, 'a0000002', 'exit', { cause: 'exited' }),
+    evSession(t(40), SYSTEM, 'a0000002', 'resume', { cause: 'prune' }),
+    evSession(t(34), SYSTEM, 'a0000002', 'exit', { cause: 'exited' }),
+    // a conductor-initiated exit: killed with no kill call row needed
+    evSession(t(30), { type: 'conductor', sessionId: C }, 'a0000001', 'exit', { cause: 'exited' }),
+    // a migrated-style system exit followed by the kill_instance call (the first attributed call: the backfill cutoff)
+    evSession(t(19), SYSTEM, 'a0000003', 'exit', { cause: 'exited' }),
+    evCall(t(19) + 8, C, 'a0000003', 'kill_instance'),
+    evWake(t(15), 'a0000005', C),
+    evWake(t(14), 'a0000005', C, { heartbeat: true }),
+    evCall(t(13), C, 'a0000005', 'set_mode'),
+    evCall(t(12), C, 'a0000005', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
+    evCall(t(11), C, 'a0000005', 'frobnicate'),
+    evCall(t(10.5), C, 'a0000005', 'send_prompt', { move: { from: 'plan', to: 'implement' } }),
+    evCall(t(9), C, 'a0000005', 'approve_plan', { move: { from: 'implement', to: 'review' } }),
+    evCall(t(9.5), C, undefined, 'spawn_instance', { outcome: 'refused' }),
+    // turn rows begin at t(18): older bars show costs.jsonl turns, newer ones turn-row turns
+    evTurn(t(18), HUMAN, C, 'start'), evTurn(t(17.6), SYSTEM, C, 'end'),
+    evTurn(t(14), HUMAN, C, 'start'), evTurn(t(13.7), SYSTEM, C, 'end'),
+    evTurn(t(11.5), C, 'a0000005', 'start'), evTurn(t(11.3), SYSTEM, 'a0000005', 'end'),
+    evTurn(t(10), C, 'a0000005', 'start'), evTurn(t(9.8), SYSTEM, 'a0000005', 'end'),
+    evTurn(t(8), C, 'a0000005', 'start'), // open: runs to the bar end
   ];
   const costs = [];
   const turn = (id, h, mins) => costs.push({ ts: t(h), duration_ms: mins * M, sessionId: id });
@@ -67,5 +83,5 @@ export function buildFixture(now = Date.now()) {
       wake('w-5', t(57), 'a0000001'),
     ],
   };
-  return makeStore({ sessions, ledger, costs, transcripts });
+  return makeStore({ sessions, events, costs, transcripts });
 }

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { loadSessions } from './store/sessions.js';
-import { LedgerReader } from './store/ledger.js';
+import { EventLogReader } from './store/events.js';
 import { CostsReader } from './store/costs.js';
 import { BackfillIndex } from './backfill/index.js';
 import { createDataDir } from './dataDir.js';
@@ -16,7 +16,7 @@ export function createState(config) {
   const state = {
     config,
     sessions: null,
-    ledger: new LedgerReader(path.join(config.storeDir, 'playbook-ledger.jsonl')),
+    events: new EventLogReader(path.join(config.storeDir, 'events.jsonl')),
     costs: new CostsReader(path.join(config.storeDir, 'costs.jsonl')),
     backfill: new BackfillIndex({ transcriptRoot: config.transcriptRoot, dataDir }),
     liveSet: null, // Set of live public ids, or null when liveness is unavailable
@@ -29,7 +29,7 @@ export function createState(config) {
     refreshStores() {
       return serialize(async () => {
         state.sessions = await loadSessions(config.storeDir, state.sessions);
-        await state.ledger.refresh();
+        await state.events.refresh();
         await state.costs.refresh();
       });
     },

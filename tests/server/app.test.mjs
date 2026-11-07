@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { makeStore, sess, iso, T0, min } from '../helpers/store.mjs';
+import { makeStore, sess, iso, T0, min, evCall, evSession, SYSTEM } from '../helpers/store.mjs';
 import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 import { createApp } from '../../src/http/app.js';
@@ -11,7 +11,7 @@ import { createApp } from '../../src/http/app.js';
 async function boot({ maxStreams } = {}) {
   const s = makeStore({
     sessions: { c: sess({ id: 'c' }), w: sess({ id: 'w', parent: 'c', project: 'p', conducted: true, at: iso(Date.now() - min(5)) }) },
-    ledger: [{ ts: iso(Date.now() - min(4)), kind: 'spawn', sessionId: 'w', stage: 'plan' }],
+    events: [evCall(iso(Date.now() - min(4)), { type: 'conductor' }, 'w', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } })],
   });
   const pub = path.join(s.root, 'public');
   fs.mkdirSync(path.join(pub, 'lib'), { recursive: true });
@@ -71,7 +71,7 @@ test('static allowlist: index and scripts served; traversal, unknown paths and S
   await b.close();
 });
 
-test('api/stream emits the current version, then a new one after a ledger append and a poll', async () => {
+test('api/stream emits the current version, then a new one after an event-log append and a poll', async () => {
   const b = await boot();
   const ctl = new AbortController();
   const res = await fetch(`${b.url}/api/stream`, { signal: ctl.signal });
@@ -86,7 +86,7 @@ test('api/stream emits the current version, then a new one after a ledger append
     }
   };
   const v0 = await nextVersion();
-  b.s.appendLedger({ ts: iso(Date.now()), kind: 'retire', sessionId: 'w', reason: 'x' });
+  b.s.appendEvents(evSession(iso(Date.now()), SYSTEM, 'w', 'exit', { cause: 'exited' }));
   await b.live.poll();
   const v1 = await nextVersion();
   assert.ok(v1 > v0);
