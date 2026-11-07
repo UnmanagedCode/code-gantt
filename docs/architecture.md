@@ -18,15 +18,15 @@
 
 ## Data flow
 
-`refreshStores()` (sessions whole, event log incrementally) → on request `buildPayload(state, window)`: horizon (null → empty payload; else the window's `from` is raised to it) → `buildForest` → `groupByProject` → `buildLinks` → `buildTurns` → per-session `buildBar` → window filter → `clipToHorizon` → payload. `Live` bumps `state.version`; `/api/stream` forwards it.
+`refreshStores()` (sessions whole, event log incrementally) → on request `buildPayload(state, window)`: horizon (none, or a requested window ending before it → empty payload; else the window's `from` is raised to it) → `buildForest` → `groupByProject` → `buildLinks` → `buildTurns` → per-session `buildBar` → window filter → `clipToHorizon` → payload. `Live` bumps `state.version`; `/api/stream` forwards it.
 
 ## Rules
 
 ### Horizon
 
 - `EventLogReader.horizonTs` = the later of the `ts` of the first `wake` row or first `call` row with `actor.sessionId` (the first row in line order) and the `ts` of the first `turn` row. `null` while either is missing; cleared on a truncation reset. No date is hardcoded.
-- `buildPayload` with a `null` horizon returns no projects, sessions or links, `diagnostics.horizon: null`, and the requested window. The frontend banner says there is no complete history.
-- Otherwise the horizon is a floor on the window: `from = max(from, horizon)`, and `window.from` reports the clamped value. The window filter then drops bars that ended earlier, clips turns, and drops links before it (spawn links at a pre-horizon child start included). Frontend zoom/pan bounds are `window`, so nothing earlier can be reached.
+- `buildPayload` with no horizon, or with a requested `to` before it, returns no projects, sessions or links and the requested window, unclamped. `diagnostics.horizon` is `null` without a horizon and stays set otherwise. The frontend banner says there is no complete history only for `null`.
+- Otherwise (`to` at or after the horizon) the horizon is a floor on the window: `from = max(from, horizon)`, and `window.from` reports the clamped value. The window filter then drops bars that ended earlier, clips turns, and drops links before it (spawn links at a pre-horizon child start included). Frontend zoom/pan bounds are `window`, so nothing earlier can be reached.
 - Clipping is output-only. Bars, `namedMax`, `linkTs` and `kills` are derived from the whole log, so a pre-horizon exit, kill or last mention still ends a bar (and hides it) instead of turning it into a false `approx` or `live` bar.
 - `clipToHorizon(bar, h)` (`src/model/bars.js`): a bar ending at or after `h` starts at `h`, keeps marks and rotations with `at >= h`, drops stage bands ending at or before `h`, and the band held at `h` starts at `h` (its `stage` and `via` kept; `playbook` kept). A bar ending before `h` (only a context row can) keeps `start`/`end`/`endKind` and has empty marks, rotations, stages and turns: a label-only row.
 - Hidden ancestors: the forest is built from all of `sessions.json` and the row rule is unchanged. A hidden same-project parent is dropped and its visible child keeps its `depth`; a hidden root or other-project ancestor stays as a `context` row so the tree keeps its structure and `rootId` resolves in `sessions`. A tree is shown only when a non-context row is visible.

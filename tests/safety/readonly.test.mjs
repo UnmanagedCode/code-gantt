@@ -8,8 +8,8 @@ import { createState } from '../../src/state.js';
 import { createLive } from '../../src/live.js';
 import { createApp } from '../../src/http/app.js';
 
-// S2: the plugin has no write path, so a whole run - including an incremental re-read after the store
-// changed - leaves every file under the temp root as it was.
+// S2: the plugin has no write path, so a whole run - state construction, the first read, an incremental
+// re-read after the store changed, and HTTP - writes nothing anywhere under the temp root.
 test('a full app run writes nothing: the snapshot of the whole temp root is identical before and after', async () => {
   const now = Date.now();
   const s = makeStore({
@@ -22,15 +22,19 @@ test('a full app run writes nothing: the snapshot of the whole temp root is iden
   const pub = path.join(s.root, 'pub-fixture');
   fs.mkdirSync(pub);
   fs.writeFileSync(path.join(pub, 'index.html'), '<title>x</title>');
+  const baseline = await snapshotDir(s.root); // before any plugin code runs
   const state = createState(s.config);
   const live = createLive({ state, config: state.config, schedule: () => () => {} });
   const changed = [];
   live.events.on('changed', (v) => changed.push(v));
   await live.start();
   await state.refreshStores();
-  // the store changes after the first read and before the snapshot: the poll must detect it and re-read incrementally
+  assert.deepEqual(await snapshotDir(s.root), baseline, 'state construction and the first read wrote nothing');
+  // the store changes after the first read: the poll must detect it and re-read incrementally
   s.appendEvents(evSession(now - min(1), SYSTEM, 'aaaa1111', 'exit', { cause: 'exited' }));
   const before = await snapshotDir(s.root);
+  const differing = Object.keys(before).filter((k) => before[k] !== baseline[k]);
+  assert.deepEqual(differing, [s.files.events], 'the test itself changed only events.jsonl');
 
   const server = http.createServer(createApp({ state, live, publicDir: pub }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
