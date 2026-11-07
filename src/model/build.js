@@ -21,10 +21,11 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   to ??= now;
   from ??= to - DEFAULT_WINDOW_MS;
   const horizon = state.events.horizonTs;
-  if (horizon == null) {
+  // Nothing is drawable without a horizon, or in a window that ends before it; the requested window is echoed.
+  if (horizon == null || to < horizon) {
     return {
       now, window: { from, to }, version: state.version, linkTypes: LINK_TYPES, projects: [], sessions: {}, links: [],
-      diagnostics: diagnostics(state, { horizon: null, unresolved: 0, unmatchedStoreRows: { events: 0 }, unknownTools: {}, treeLoops: 0 }),
+      diagnostics: diagnostics(state, { horizon: horizon == null ? null : new Date(horizon).toISOString(), unresolved: 0, unmatchedStoreRows: { events: 0 }, unknownTools: {}, treeLoops: 0 }),
     };
   }
   from = Math.max(from, horizon);

@@ -243,6 +243,9 @@ async function horizonStore(extraSessions = {}, extraEvents = [], lateEvents = [
       evSession(T0 + min(130), SYSTEM, 'ssss0001', 'resume', { cause: 'restore' }),
       evWake(T0 + min(150), 'nnnn0001', 'cccc0000'),
       evCall(T0 + min(160), 'cccc0000', 'llll0001', 'send_prompt'),
+      // post-horizon evidence: were the exit or the kill ignored, these two would be approx bars crossing the horizon
+      evTurn(T0 + min(170), 'cccc0000', 'eeee0001', 'start'), evTurn(T0 + min(171), SYSTEM, 'eeee0001', 'end'),
+      evTurn(T0 + min(172), 'cccc0000', 'kkkk0001', 'start'), evTurn(T0 + min(173), SYSTEM, 'kkkk0001', 'end'),
       ...lateEvents,
     ],
   });
@@ -315,6 +318,37 @@ test('with no horizon the payload has no projects, sessions or links and reports
   }
 });
 
+// C1: a window that ends before the horizon is never inverted and draws nothing.
+test('a window wholly before the horizon emits nothing drawable, keeps the requested window and still reports the horizon; no window or turn is ever inverted', async () => {
+  const { s, state } = await horizonStore();
+  const before = buildPayload(state, { from: T0, to: H - min(10), now: HW.now });
+  assert.deepEqual([before.projects, before.sessions, before.links], [[], {}, []]);
+  assert.deepEqual(before.window, { from: T0, to: H - min(10) });
+  assert.equal(before.diagnostics.horizon, iso(H));
+  for (const to of [T0 + min(1), H - 1, H, H + 1, H + min(15), H + min(400)]) {
+    const p = buildPayload(state, { from: T0, to, now: HW.now });
+    assert.ok(p.window.from <= p.window.to, `window at to=${to - H}`);
+    for (const b of Object.values(p.sessions)) assert.ok(b.turns.every(([a, e]) => a <= e), `turns at to=${to - H}`);
+  }
+  s.cleanup();
+});
+
+// T3: a turn that starts before the horizon (the first turn row predates the first wake or attributed call).
+test('a turn segment that starts before the horizon on a bar reaching past it is emitted starting at the horizon; a turn wholly before it is not emitted', async () => {
+  const { s, state } = await fixture({
+    events: [
+      evTurn(T0 + min(2), 'cccc0000', 'aaaa1111', 'start'), evTurn(T0 + min(5), SYSTEM, 'aaaa1111', 'end'), // the first turn row
+      evTurn(T0 + min(10), 'cccc0000', 'aaaa1111', 'start'),
+      evCall(T0 + min(20), 'cccc0000', 'aaaa1111', 'send_prompt'), // the first attributed call: the horizon
+      evTurn(T0 + min(30), SYSTEM, 'aaaa1111', 'end'),
+    ],
+  });
+  const p = buildPayload(state, { from: T0, to: T0 + min(100), now: T0 + min(5000) });
+  assert.equal(p.diagnostics.horizon, iso(T0 + min(20)));
+  assert.deepEqual(p.sessions.aaaa1111.turns, [[T0 + min(20), T0 + min(30)]]);
+  s.cleanup();
+});
+
 // P5: hidden ancestors.
 test('a hidden context ancestor stays a label-only context row above a visible descendant; a hidden same-project parent is dropped and its visible child keeps its depth', async () => {
   const ended = (id) => evSession(T0 + min(65), SYSTEM, id, 'exit', { cause: 'exited' });
@@ -343,9 +377,32 @@ test('a hidden context ancestor stays a label-only context row above a visible d
 // P6: the horizon clips the output, never the inputs that decide how a bar ends.
 test('a pre-horizon exit, kill or last mention still ends the bar and hides it; a post-horizon mention keeps an approx bar visible', async () => {
   const { s, p } = await horizonStore();
+  // eeee0001 (exit) and kkkk0001 (kill link) have post-horizon turn rows: only their terminator keeps them hidden
   for (const id of ['eeee0001', 'kkkk0001', 'mmmm0001']) assert.equal(id in p.sessions, false, `${id} hidden`);
   const n = p.sessions.nnnn0001;
   assert.deepEqual([n.endKind, n.end, n.start], ['approx', T0 + min(150), H]);
+  s.cleanup();
+});
+
+// P6b: hidden sessions are not observable, so the same wiring is pinned on context ancestors, whose bars
+// are emitted (label-only) with their real end.
+test('a hidden context ancestor keeps the end that its pre-horizon exit, kill link or last mention gave it', async () => {
+  const kid = (id, parent) => sess({ id, parent, project: 'p', conducted: true, at: iso(T0 + min(60)) });
+  const { s, p } = await horizonStore({
+    rxa00001: sess({ id: 'rxa00001', at: iso(T0 + min(8)) }), // system exit before H, post-horizon turn row
+    rxb00001: sess({ id: 'rxb00001', at: iso(T0 + min(8)) }), // kill_instance link before H, no exit, post-horizon turn row
+    rxc00001: sess({ id: 'rxc00001', at: iso(T0 + min(8)) }), // last mention before H, nothing after
+    cha00001: kid('cha00001', 'rxa00001'), chb00001: kid('chb00001', 'rxb00001'), chc00001: kid('chc00001', 'rxc00001'),
+  }, [
+    evSession(T0 + min(30), SYSTEM, 'rxa00001', 'exit', { cause: 'exited' }),
+    evCall(T0 + min(63), 'cccc0000', 'rxb00001', 'kill_instance'),
+    evCall(T0 + min(70), mig, 'rxc00001', 'send_prompt'),
+  ], ['rxa00001', 'rxb00001', 'cha00001', 'chb00001', 'chc00001'].map((id) => evTurn(T0 + min(140), 'cccc0000', id, 'start')));
+  const at = (id) => [p.sessions[id].endKind, p.sessions[id].end];
+  assert.deepEqual(at('rxa00001'), ['exited', T0 + min(30)]);
+  assert.deepEqual(at('rxb00001'), ['killed', T0 + min(63)]);
+  assert.deepEqual(at('rxc00001'), ['approx', T0 + min(70)]);
+  for (const id of ['rxa00001', 'rxb00001', 'rxc00001']) assert.deepEqual([p.sessions[id].turns, p.sessions[id].marks, p.sessions[id].stages], [[], [], []], id);
   s.cleanup();
 });
 

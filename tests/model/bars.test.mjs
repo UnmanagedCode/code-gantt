@@ -186,6 +186,20 @@ test('clipToHorizon leaves a bar wholly after the horizon unchanged, and clips a
   assert.deepEqual(live.stages, [{ stage: 'plan', from: H, to: null }]);
 });
 
+// T4: a bar ending exactly at the horizon is in the "ends at or after" branch, not emptied.
+test('clipToHorizon: a bar ending exactly at the horizon starts at it and keeps a mark and rotation at it; the band that ended at it is zero-width and dropped', () => {
+  const b = clipToHorizon(built({
+    start: T0, end: H, endKind: 'exited', turns: [[H, H]],
+    marks: [{ at: H - 1, kind: 'exit' }, { at: H, kind: 'resume' }], rotations: [{ at: H, reason: 'renew' }],
+    stages: [{ stage: 'plan', from: T0, to: H }],
+  }), H);
+  assert.deepEqual([b.start, b.end, b.endKind], [H, H, 'exited']);
+  assert.deepEqual(b.marks, [{ at: H, kind: 'resume' }]);
+  assert.deepEqual(b.rotations, [{ at: H, reason: 'renew' }]);
+  assert.deepEqual(b.turns, [[H, H]]);
+  assert.deepEqual(b.stages, []);
+});
+
 // B4: a bar ending before the horizon draws nothing and is never inverted (start <= end).
 test('clipToHorizon keeps start and end of a bar that ends before the horizon and empties its marks, rotations, stages and turns', () => {
   const b = clipToHorizon(built({

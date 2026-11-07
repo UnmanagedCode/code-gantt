@@ -134,6 +134,18 @@ test('horizonTs is null while either marker is missing', async () => {
   }
 });
 
+// T2: with a link marker later than every post-reset marker, a stale #firstLinkTs would show.
+test('after a truncation reset the horizon comes only from re-read rows, even when the pre-reset link marker was later than all of them', async () => {
+  const s = makeStore({ events: [evTurn(T0 + min(10), 'c', 'w', 'start'), evCall(T0 + min(50), 'c', 'w', 'send_prompt'), evSession(T0, SYSTEM, 'w', 'start'), evSession(T0, SYSTEM, 'w', 'exit'), evSession(T0, SYSTEM, 'w', 'resume')] });
+  const r = new EventLogReader(s.files.events);
+  await r.refresh();
+  assert.equal(r.horizonTs, T0 + min(50));
+  fs.writeFileSync(s.files.events, [evWake(T0 + min(8), 'w', 'c'), evTurn(T0 + min(9), 'c', 'w', 'start')].map((x) => JSON.stringify(x)).join('\n') + '\n');
+  await r.refresh();
+  assert.equal(r.horizonTs, T0 + min(9));
+  s.cleanup();
+});
+
 test('unknown kinds named like Object.prototype members are counted as plain keys', async () => {
   const mk = (kind) => ({ v: 1, ts: '2026-11-01T00:00:00.000Z', kind, actor: SYSTEM });
   const { s, r } = await read([mk('constructor'), mk('toString'), mk('constructor'), mk('__proto__')]);

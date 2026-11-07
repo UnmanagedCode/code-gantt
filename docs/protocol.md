@@ -30,7 +30,7 @@ All URLs are relative to the plugin root (cc proxies it under a path prefix). Ev
 
 - `unresolved` counts link endpoints that match no session; `unmatchedStoreRows` counts event-log rows whose session is not in `sessions.json`.
 - `horizon` is `EventLogReader.horizonTs` as ISO (rule below), or `null`; with `null` the payload has no projects, sessions or links.
-- `window.from` is the requested `from` raised to the horizon.
+- `window.from` is the requested `from` raised to the horizon. When the requested `to` is before the horizon (or there is no horizon) the payload has no projects, sessions or links and `window` is the requested one; `diagnostics.horizon` is still set when the log has one. So `window.from <= window.to` and no turn is inverted.
 - `otherVersionRows` counts event-log rows whose `v` is not the one this plugin reads; they are skipped.
 - Times are epoch ms. `end: null` means open-ended (frontend extends to `now`).
 - `linkTypes` is the single catalog (`src/model/linkTypes.js`); the frontend reads it from the payload.

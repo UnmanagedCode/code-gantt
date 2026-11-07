@@ -158,4 +158,8 @@ test('with horizon null the status banner is non-empty; with a horizon it is emp
   const b = boot(none);
   await b.app.load();
   assert.notEqual(b.root.querySelector('.banner').textContent, '');
+  // T5: keyed on the horizon, not on an empty chart
+  const empty = boot(payload({ projects: [], sessions: {}, links: [] }));
+  await empty.app.load();
+  assert.equal(empty.root.querySelector('.banner').textContent, '');
 });
