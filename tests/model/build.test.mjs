@@ -190,3 +190,53 @@ test('the payload reports other-version rows and the first attributed call as th
   assert.equal(d.cutoff, iso(T0 + min(40)));
   s.cleanup();
 });
+
+const W = { from: T0, to: T0 + min(400), now: T0 + min(5000) };
+
+test('stages and playbook come from reader-produced bind and move rows', async () => {
+  const { s, state } = await fixture({
+    events: [
+      evCall(T0 + min(10), 'cccc0000', 'aaaa1111', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
+      evCall(T0 + min(20), 'cccc0000', 'aaaa1111', 'approve_plan', { move: { from: 'plan', to: 'implement' } }),
+      evSession(T0 + min(60), SYSTEM, 'aaaa1111', 'exit', { cause: 'exited' }),
+    ],
+    costs: [], transcripts: {},
+  });
+  const a = buildPayload(state, W).sessions.aaaa1111;
+  assert.equal(a.playbook, 'classic');
+  assert.deepEqual(a.stages, [
+    { stage: 'plan', from: T0 + min(10), to: T0 + min(20) },
+    { stage: 'implement', from: T0 + min(20), to: T0 + min(60), via: 'approve_plan' },
+  ]);
+  s.cleanup();
+});
+
+test('a refused call row carrying bind or move is admitted to the bar at any outcome', async () => {
+  const { s, state } = await fixture({
+    events: [
+      evCall(T0 + min(10), 'cccc0000', 'aaaa1111', 'spawn_instance', { outcome: 'refused', bind: { playbook: 'warned', stage: 'plan' } }),
+      evCall(T0 + min(20), 'cccc0000', 'aaaa1111', 'send_prompt', { outcome: 'refused', move: { from: 'plan', to: 'review' } }),
+    ],
+    costs: [], transcripts: {},
+  });
+  const a = buildPayload(state, W).sessions.aaaa1111;
+  assert.equal(a.playbook, 'warned');
+  assert.deepEqual(a.stages.map((x) => [x.stage, x.via]), [['plan', undefined], ['review', 'send_prompt']]);
+  s.cleanup();
+});
+
+test('an approx bar extends to its latest mention as a caller, as a forward source, or as a wake recipient (rows that draw no link)', async () => {
+  const at = T0 + min(200);
+  const cases = {
+    caller: [evCall(at, 'aaaa1111', undefined, 'spawn_instance', { outcome: 'refused' })],
+    forward: [evCall(at, 'cccc0000', 'ghost0000', 'send_prompt', { outcome: 'refused', forward: 'aaaa1111' })],
+    recipient: [evWake(at, 'ghost0000', 'aaaa1111')],
+  };
+  for (const [name, events] of Object.entries(cases)) {
+    const { s, state } = await fixture({ events, costs: [], transcripts: {} });
+    const p = buildPayload(state, { from: T0, to: T0 + min(300), now: T0 + min(5000) });
+    assert.equal(p.links.filter((l) => l.type !== 'spawn').length, 0, name);
+    assert.deepEqual([p.sessions.aaaa1111.endKind, p.sessions.aaaa1111.end], ['approx', at], name);
+    s.cleanup();
+  }
+});

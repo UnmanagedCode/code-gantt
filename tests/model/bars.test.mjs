@@ -127,3 +127,14 @@ test('a second bind replaces the bands and the playbook', () => {
   assert.equal(b.playbook, 'split');
   assert.deepEqual(b.stages, [{ stage: 'draft', from: T0 + min(9), to: null }]);
 });
+
+test('marks hold only non-ending exit/resume rows: the ending exit is excluded, whether the bar is exited or killed', () => {
+  const earlier = [session('exit', T0 + min(10)), session('resume', T0 + min(20), { cause: 'restore' })];
+  const want = [{ at: T0 + min(10), kind: 'exit' }, { at: T0 + min(20), kind: 'resume' }];
+  const ending = session('exit', T0 + min(30));
+  assert.deepEqual(bar(rec(), { own: [...earlier, ending] }).marks, want);
+  const byConductor = session('exit', T0 + min(30), { actor: { type: 'conductor' } });
+  assert.deepEqual(bar(rec(), { own: [...earlier, byConductor] }).marks, want);
+  const byLink = bar(rec(), { own: [...earlier, ending], kills: [ending.ts + 5] });
+  assert.deepEqual([byLink.endKind, byLink.marks], ['killed', want]);
+});

@@ -125,14 +125,29 @@ test('unknown kinds named like Object.prototype members are counted as plain key
   s.cleanup();
 });
 
-test('truncation clears rows and counters', async () => {
+test('truncation clears rows and every counter, corruptLines included', async () => {
   const s = makeStore({ events: [evWake(T0, 'w', 'c'), evTurn(T0, 'c', 'w', 'start'), { v: 9, kind: 'x' }, { v: 1, kind: 'zzz' }] });
+  fs.appendFileSync(s.files.events, 'garbage\n');
+  s.appendEvents(evSession(T0, SYSTEM, 'w', 'start'));
   const r = new EventLogReader(s.files.events);
   await r.refresh();
-  assert.equal(r.events.length, 2);
+  assert.equal(r.events.length, 3);
+  assert.equal(r.corruptLines, 1);
   fs.writeFileSync(s.files.events, JSON.stringify(evSession(T0, SYSTEM, 'w', 'start')) + '\n');
   await r.refresh();
   assert.deepEqual(r.events.map((e) => e.kind), ['session']);
-  assert.deepEqual([r.cutoffTs, r.turnCutoffTs, r.otherVersionRows, r.unknownKinds], [null, null, 0, {}]);
+  assert.deepEqual([r.cutoffTs, r.turnCutoffTs, r.otherVersionRows, r.unknownKinds, r.corruptLines], [null, null, 0, {}, 0]);
+  s.cleanup();
+});
+
+test('wake.heartbeat and the full bind {playbook, stage} are copied from raw contract rows; other bind fields are not', async () => {
+  const { s, r } = await read([
+    evWake(T0, 'w', 'c', { heartbeat: true }),
+    evWake(T0 + 1, 'w', 'c'),
+    evCall(T0 + 2, 'c', 'w', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan', provenance: { stage: 'x' }, project: 'p', worktree: 'wt' } }),
+  ]);
+  const [hb, plain, spawn] = r.events;
+  assert.deepEqual([hb.heartbeat, plain.heartbeat, hb.recipient], [true, undefined, 'c']);
+  assert.deepEqual(spawn.bind, { playbook: 'classic', stage: 'plan' });
   s.cleanup();
 });
