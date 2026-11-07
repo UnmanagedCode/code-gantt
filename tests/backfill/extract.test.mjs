@@ -18,7 +18,7 @@ test('governed send_prompt tool_use → call with bare tool, raw target, raw for
   assert.deepEqual(out, [{ k: 'call', id: 'toolu_1', ts: Date.parse(TS), tool: 'send_prompt', target: 'aaaa1111', forward: 'f1' }]);
 });
 
-test('every governed tool is extracted (parity with the ledger interaction set)', () => {
+test('every governed tool is extracted (parity with the event-log interaction tools)', () => {
   for (const tool of GOVERNED_TOOLS) {
     const out = extractLine(toolUse(`mcp__code-conductor__${tool}`, { sessionId: 'aaaa1111' }));
     assert.equal(out.length, 1, tool);

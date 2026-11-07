@@ -1,41 +1,60 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBar } from '../../src/model/bars.js';
+import { buildBar, KILL_AFTER_EXIT_MS } from '../../src/model/bars.js';
 import { sess, iso, T0, min } from '../helpers/store.mjs';
 
 const rec = (over = {}) => ({ id: 'w', ...sess({ id: 'w', parent: 'c', project: 'p', conducted: true, ...over }) });
 const base = { own: [], namedMaxTs: 0, turns: [], turnRows: 0, linkTs: 0, kills: [], live: false, now: T0 + min(1000) };
 const bar = (r, ctx) => buildBar(r, { ...base, ...ctx });
-const ev = (kind, ts, o = {}) => ({ kind, ts, line: 0, ...o });
+const SYS = { type: 'system' };
+// normalised EventLogReader rows
+const session = (event, ts, o = {}) => ({ kind: 'session', event, ts, actor: SYS, ...o });
+const call = (tool, ts, o = {}) => ({ kind: 'call', tool, outcome: 'ok', ts, actor: { type: 'conductor', sessionId: 'c' }, ...o });
 
 test('start is segments[0].at', () => {
   assert.equal(bar(rec({ at: iso(T0 + min(3)) }), {}).start, T0 + min(3));
 });
 
-test('retire → retired with endReason', () => {
-  const b = bar(rec(), { own: [ev('retire', T0 + min(30), { reason: 'subprocess exited' })] });
-  assert.deepEqual([b.endKind, b.end, b.endReason], ['retired', T0 + min(30), 'subprocess exited']);
+test('a session exit → exited with endReason = cause', () => {
+  const b = bar(rec(), { own: [session('exit', T0 + min(30), { cause: 'crashed' })] });
+  assert.deepEqual([b.endKind, b.end, b.endReason], ['exited', T0 + min(30), 'crashed']);
 });
 
-test('retire then resume, and live → live with end null', () => {
-  const b = bar(rec(), { own: [ev('retire', T0 + min(30), { reason: 'r' }), ev('resume', T0 + min(40))], live: true });
+test('exit then resume, and live → live with end null; the marks are exit and resume', () => {
+  const b = bar(rec(), { own: [session('exit', T0 + min(30)), session('resume', T0 + min(40), { cause: 'restore' })], live: true });
   assert.deepEqual([b.endKind, b.end], ['live', null]);
-  assert.deepEqual(b.marks, [{ at: T0 + min(30), kind: 'retire' }, { at: T0 + min(40), kind: 'resume' }]);
+  assert.deepEqual(b.marks, [{ at: T0 + min(30), kind: 'exit' }, { at: T0 + min(40), kind: 'resume' }]);
 });
 
-test('a kill without a retire → killed at the kill ts', () => {
+test('a kill link without an exit → killed at the kill ts', () => {
   const b = bar(rec(), { kills: [T0 + min(50)] });
   assert.deepEqual([b.endKind, b.end], ['killed', T0 + min(50)]);
 });
 
-test('a retire that follows a kill → killed, end stays the retire ts; a kill before a resume does not count', () => {
-  const b = bar(rec(), { kills: [T0 + min(50)], own: [ev('retire', T0 + min(51), { reason: 'killed' })] });
-  assert.deepEqual([b.endKind, b.end, b.endReason], ['killed', T0 + min(51), 'killed']);
-  const c = bar(rec(), { kills: [T0 + min(50)], own: [ev('resume', T0 + min(60))], live: true });
-  assert.equal(c.endKind, 'live');
+test('an exit by a conductor or a human actor → killed with no kill link; a system exit is exited', () => {
+  for (const type of ['conductor', 'human']) {
+    const b = bar(rec(), { own: [session('exit', T0 + min(50), { actor: { type }, cause: 'exited' })] });
+    assert.deepEqual([b.endKind, b.end], ['killed', T0 + min(50)], type);
+  }
+  assert.equal(bar(rec(), { own: [session('exit', T0 + min(50))] }).endKind, 'exited');
 });
 
-test('not live and nothing else → approx, end = latest of turn end, ledger mention, link, segment', () => {
+test('a system exit with a kill link within KILL_AFTER_EXIT_MS (either order) → killed, end = exit ts; later → exited', () => {
+  const exit = session('exit', T0 + min(50));
+  for (const dt of [7, -7, KILL_AFTER_EXIT_MS]) {
+    const b = bar(rec(), { own: [exit], kills: [exit.ts + dt] });
+    assert.deepEqual([b.endKind, b.end], ['killed', exit.ts], String(dt));
+  }
+  assert.equal(bar(rec(), { own: [exit], kills: [exit.ts + 60_000] }).endKind, 'exited');
+});
+
+test('a kill link before the last resume never counts', () => {
+  const resumed = bar(rec(), { own: [session('exit', T0 + min(50)), session('resume', T0 + min(60)), session('exit', T0 + min(70))], kills: [T0 + min(50) + 5] });
+  assert.equal(resumed.endKind, 'exited');
+  assert.equal(bar(rec(), { kills: [T0 + min(50)], own: [session('resume', T0 + min(60))], live: true }).endKind, 'live');
+});
+
+test('not live and nothing else → approx, end = latest of turn end, event-log mention, link, segment', () => {
   const r = rec({ segments: [
     { id: 'a', reason: 'initial', at: iso(T0) }, { id: 'b', reason: 'renew', at: iso(T0 + min(10)) },
   ] });
@@ -55,7 +74,7 @@ test('liveness unavailable (live=false) never produces live', () => {
   assert.equal(bar(rec(), { live: false }).endKind, 'approx');
 });
 
-test('turns come from costs; turnCount is turnEndSeq else the row count', () => {
+test('turnCount is turnEndSeq else the row count', () => {
   assert.deepEqual(bar(rec(), { turns: [[1, 2]], turnRows: 5 }).turns, [[1, 2]]);
   assert.equal(bar(rec(), { turnRows: 5 }).turnCount, 5);
   assert.equal(bar(rec({ turnEndSeq: 9 }), { turnRows: 5 }).turnCount, 9);
@@ -71,12 +90,12 @@ test('rotation markers only for renew and prune after the first segment', () => 
   assert.deepEqual(bar(r, {}).rotations, [{ at: T0 + min(5), reason: 'renew' }, { at: T0 + min(6), reason: 'prune' }]);
 });
 
-test('stage bands come from spawn and transitions labelled via; the last band ends at the bar end', () => {
+test('stage bands come from bind then moves labelled via the tool; the last band ends at the bar end', () => {
   const own = [
-    ev('spawn', T0, { stage: 'plan', playbook: 'classic' }),
-    ev('transition', T0 + min(10), { to: 'implement', via: 'approve_plan' }),
-    ev('transition', T0 + min(20), { to: 'review', via: 'send_prompt' }),
-    ev('retire', T0 + min(30), { reason: 'done' }),
+    call('spawn_instance', T0, { bind: { playbook: 'classic', stage: 'plan' } }),
+    call('approve_plan', T0 + min(10), { move: { from: 'plan', to: 'implement' } }),
+    call('send_prompt', T0 + min(20), { move: { from: 'implement', to: 'review' } }),
+    session('exit', T0 + min(30), { cause: 'exited' }),
   ];
   const b = bar(rec(), { own });
   assert.equal(b.playbook, 'classic');
@@ -89,15 +108,33 @@ test('stage bands come from spawn and transitions labelled via; the last band en
   assert.equal(live.stages.at(-1).to, null);
 });
 
-test('C1: cc writes the retire first and the kill interaction a few ms later → killed, end stays the retire ts', () => {
-  const retire = ev('retire', T0 + min(50), { reason: 'killed' });
-  const b = bar(rec(), { own: [retire], kills: [T0 + min(50) + 7] });
-  assert.deepEqual([b.endKind, b.end, b.endReason], ['killed', T0 + min(50), 'killed']);
+test('a move to the stage already held folds nothing; a refused row carrying a move still folds', () => {
+  const own = [
+    call('spawn_instance', T0, { bind: { playbook: 'classic', stage: 'plan' } }),
+    call('send_prompt', T0 + min(5), { move: { from: 'review', to: 'plan' } }),
+    call('send_prompt', T0 + min(8), { outcome: 'refused', move: { from: 'plan', to: 'review' } }),
+  ];
+  assert.deepEqual(bar(rec(), { own }).stages.map((x) => x.stage), ['plan', 'review']);
 });
 
-test('C1: a kill long after a retire (session already retired) stays retired; a kill before the last resume never counts', () => {
-  const retire = ev('retire', T0 + min(50), { reason: 'subprocess exited' });
-  assert.equal(bar(rec(), { own: [retire], kills: [T0 + min(50) + 60_000] }).endKind, 'retired');
-  const resumed = bar(rec(), { own: [retire, ev('resume', T0 + min(60)), ev('retire', T0 + min(70), { reason: 'x' })], kills: [T0 + min(50) + 5] });
-  assert.equal(resumed.endKind, 'retired');
+test('a second bind replaces the bands and the playbook', () => {
+  const own = [
+    call('spawn_instance', T0, { bind: { playbook: 'classic', stage: 'plan' } }),
+    call('approve_plan', T0 + min(5), { move: { from: 'plan', to: 'implement' } }),
+    call('spawn_instance', T0 + min(9), { bind: { playbook: 'split', stage: 'draft' } }),
+  ];
+  const b = bar(rec(), { own, live: true });
+  assert.equal(b.playbook, 'split');
+  assert.deepEqual(b.stages, [{ stage: 'draft', from: T0 + min(9), to: null }]);
+});
+
+test('marks hold only non-ending exit/resume rows: the ending exit is excluded, whether the bar is exited or killed', () => {
+  const earlier = [session('exit', T0 + min(10)), session('resume', T0 + min(20), { cause: 'restore' })];
+  const want = [{ at: T0 + min(10), kind: 'exit' }, { at: T0 + min(20), kind: 'resume' }];
+  const ending = session('exit', T0 + min(30));
+  assert.deepEqual(bar(rec(), { own: [...earlier, ending] }).marks, want);
+  const byConductor = session('exit', T0 + min(30), { actor: { type: 'conductor' } });
+  assert.deepEqual(bar(rec(), { own: [...earlier, byConductor] }).marks, want);
+  const byLink = bar(rec(), { own: [...earlier, ending], kills: [ending.ts + 5] });
+  assert.deepEqual([byLink.endKind, byLink.marks], ['killed', want]);
 });

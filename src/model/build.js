@@ -3,9 +3,9 @@ import { buildLinks } from './links.js';
 import { buildBar } from './bars.js';
 import { resolveId } from './resolve.js';
 import { LINK_TYPES } from './linkTypes.js';
+import { buildTurns } from './turns.js';
 
 const DEFAULT_WINDOW_MS = 72 * 3600_000;
-const OWN_KINDS = new Set(['spawn', 'transition', 'retire', 'resume']);
 
 function clipTurns(turns, from, to) {
   const out = [];
@@ -29,30 +29,39 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
 
   const { links: allLinks, unresolved, unknownTools } = buildLinks({
     sessions: { byId, byBacking, forest },
-    ledger: state.ledger.events,
+    events: state.events.events,
     backfill: state.backfill.collect(),
-    cutoffTs: state.ledger.cutoffTs,
+    cutoffTs: state.events.cutoffTs,
   });
 
   const own = new Map();
   const namedMax = new Map();
-  const unmatched = { ledger: 0, costs: 0 }; // rows of sessions absent from sessions.json
-  for (const ev of state.ledger.events) {
-    if (ev.sessionId && !idOf(ev.sessionId)) unmatched.ledger++;
-    for (const raw of [ev.sessionId, ev.conductorSessionId, ev.forwardSessionId]) {
+  const unmatched = { events: 0, costs: 0 }; // rows of sessions absent from sessions.json
+  for (const ev of state.events.events) {
+    if (ev.subject && !idOf(ev.subject)) unmatched.events++;
+    for (const raw of [ev.subject, ev.actor.sessionId, ev.forward, ev.recipient]) {
       const id = raw && idOf(raw);
       if (id && Number.isFinite(ev.ts)) namedMax.set(id, Math.max(namedMax.get(id) ?? 0, ev.ts));
     }
-    const id = ev.sessionId && idOf(ev.sessionId);
-    if (id && OWN_KINDS.has(ev.kind)) (own.get(id) ?? own.set(id, []).get(id)).push(ev);
+    const id = ev.subject && idOf(ev.subject);
+    // A refused row (under `warn` the call's only row) may carry a bind or move too.
+    if (id && (ev.kind === 'session' || (ev.kind === 'call' && (ev.bind || ev.move)))) (own.get(id) ?? own.set(id, []).get(id)).push(ev);
   }
 
+  // Turns: costs.jsonl before the event log's first `turn` row (none exist before it), `turn` rows from then on.
+  const turnCutoff = state.events.turnCutoffTs;
   const turns = new Map();
+  const addTurns = (id, list) => turns.set(id, [...(turns.get(id) ?? []), ...list]);
   for (const [raw, list] of state.costs.turnsBySession) {
     const id = idOf(raw);
-    if (id) turns.set(id, [...(turns.get(id) ?? []), ...list]);
-    else unmatched.costs += list.length;
+    if (!id) {
+      unmatched.costs += list.length;
+      continue;
+    }
+    const kept = turnCutoff == null ? list : list.filter(([, e]) => e < turnCutoff);
+    if (kept.length) addTurns(id, kept);
   }
+  const rowTurns = buildTurns(state.events.events, idOf);
   for (const list of turns.values()) list.sort((a, b) => a[1] - b[1]);
 
   const linkTs = new Map();
@@ -67,7 +76,16 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   const barOf = (id) => {
     if (bars.has(id)) return bars.get(id);
     const rec = byId.get(id);
-    const t = turns.get(id) ?? [];
+    // An open turn (no `end` yet) is sized after the bar's end is known: it counts as activity at its start
+    // for the approximate end, then runs to the bar's end (`now` while live).
+    const openTurns = [];
+    const t = [...(turns.get(id) ?? [])];
+    for (const [s, e] of rowTurns.get(id) ?? []) {
+      const iv = [s, e ?? s];
+      if (e == null) openTurns.push(iv);
+      t.push(iv);
+    }
+    t.sort((a, b) => a[1] - b[1]);
     const bar = buildBar(rec, {
       own: own.get(id) ?? [],
       namedMaxTs: namedMax.get(id) ?? 0,
@@ -78,6 +96,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
       live: state.liveSet?.has(id) ?? false,
       now,
     });
+    for (const iv of openTurns) iv[1] = Math.max(iv[0], bar.end ?? now);
     bars.set(id, bar);
     return bar;
   };
@@ -112,7 +131,7 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
 
   const missing = [];
   if (state.sessions.missing) missing.push('sessions.json');
-  if (state.ledger.missing) missing.push('playbook-ledger.jsonl');
+  if (state.events.missing) missing.push('events.jsonl');
   if (state.costs.missing) missing.push('costs.jsonl');
   const errors = state.sessions.error ? [state.sessions.error] : [];
   const bf = state.backfill.status();
@@ -128,12 +147,13 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     diagnostics: {
       liveness: state.liveSet ? 'ok' : 'unavailable',
       backfill: bf,
-      cutoff: state.ledger.cutoffTs == null ? null : new Date(state.ledger.cutoffTs).toISOString(),
+      cutoff: state.events.cutoffTs == null ? null : new Date(state.events.cutoffTs).toISOString(),
       unresolved,
       unmatchedStoreRows: unmatched,
       unknownTools,
-      unknownKinds: state.ledger.unknownKinds,
-      corruptLines: state.ledger.corruptLines + state.costs.corruptLines + bf.corrupt,
+      unknownKinds: state.events.unknownKinds,
+      otherVersionRows: state.events.otherVersionRows,
+      corruptLines: state.events.corruptLines + state.costs.corruptLines + bf.corrupt,
       treeLoops: forest.loops,
       missing,
       errors,

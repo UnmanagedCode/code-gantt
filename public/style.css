@@ -79,7 +79,7 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .rotation-renew { fill: var(--info); }
 .rotation-prune { fill: var(--plan); }
 .mark { stroke: var(--card); stroke-width: 2; }
-.mark-retire { fill: var(--destructive); }
+.mark-exit { fill: var(--destructive); }
 .mark-resume { fill: var(--success); }
 
 /* link colours: one rule per type, shared by chart lines and legend swatches */
