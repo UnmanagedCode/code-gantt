@@ -45,3 +45,9 @@ test('toggleGroup: some → all, all → none, none → all', () => {
   assert.equal(triState(toggleGroup(S('a', 'b'), keys), keys), 'none');
   assert.equal(triState(toggleGroup(S(), keys), keys), 'all');
 });
+
+test('an explicit subset never reads All, even when it covers every item; None only when non-empty total', () => {
+  assert.equal(summary('Projects', 1, 1, false), 'Projects · 1 of 1');
+  assert.equal(summary('Projects', 0, 2, false), 'Projects · None');
+  assert.equal(summary('Projects', 2, 2, true), 'Projects · All');
+});

@@ -73,6 +73,8 @@ test('a selectedKeys → applySelection round trip leaves applyFilters output un
     (f) => { f.roots = new Set(['r2']); },
     (f) => { f.linkTypes.delete('wake'); },
     (f) => { f.heartbeat = false; },
+    (f) => { f.projects = new Set(['A', 'gone']); },
+    (f) => { f.roots = new Set(['r', 'gone']); },
   ];
   for (const mutate of variants) {
     const f = defaultFilters(p);
@@ -81,4 +83,34 @@ test('a selectedKeys → applySelection round trip leaves applyFilters output un
     for (const dim of ['projects', 'roots', 'links']) applySelection(g, dim, items[dim], selectedKeys(g, dim, items[dim]));
     assert.deepEqual(applyFilters(p, g), applyFilters(p, f));
   }
+});
+
+test('selectedKeys keeps stored keys that are not in the current items', () => {
+  const p = payload();
+  const items = dimensionItems(p);
+  const f = defaultFilters(p);
+  f.projects = new Set(['A', 'gone']);
+  f.roots = new Set(['r', 'gone']);
+  assert.equal(selectedKeys(f, 'projects', items.projects).has('gone'), true);
+  assert.equal(selectedKeys(f, 'roots', items.roots).has('gone'), true);
+});
+
+test('dimensionItems lists a root once when it appears under two projects', () => {
+  const p = payload();
+  p.projects[1].trees.push({ rootId: 'r', rows: [{ id: 'r', depth: 0, context: true }] });
+  const keys = dimensionItems(p).roots.map((i) => i.key);
+  assert.deepEqual(keys, ['r', 'r2']);
+});
+
+test('isAll: null means All for projects/roots, an explicit Set never does; links go by count', async () => {
+  const { isAll } = await import('../../public/lib/filterModel.js');
+  const p = payload();
+  const items = dimensionItems(p);
+  const f = defaultFilters(p);
+  assert.equal(isAll(f, 'projects', items.projects), true);
+  f.projects = new Set(['A', 'B']);
+  assert.equal(isAll(f, 'projects', items.projects), false);
+  assert.equal(isAll(f, 'links', items.links), true);
+  f.heartbeat = false;
+  assert.equal(isAll(f, 'links', items.links), false);
 });

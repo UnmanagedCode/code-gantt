@@ -1,5 +1,5 @@
 import { el, listen } from '../lib/dom.js';
-import { dimensionItems, selectedKeys, applySelection } from '../lib/filterModel.js';
+import { dimensionItems, selectedKeys, applySelection, isAll } from '../lib/filterModel.js';
 import { createFilterMenu } from './filterMenu.js';
 
 export const RANGES = [
@@ -42,7 +42,7 @@ export function createFilterBar(host, h) {
       filters = nextFilters;
       items = dimensionItems(payload);
       range.value = String(rangeMs);
-      for (const [dim, menu] of menus) menu.update(items[dim], selectedKeys(filters, dim, items[dim]));
+      for (const [dim, menu] of menus) menu.update(items[dim], selectedKeys(filters, dim, items[dim]), isAll(filters, dim, items[dim]));
     },
   };
 }

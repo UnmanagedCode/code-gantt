@@ -321,7 +321,9 @@ test('a project that appears on reload is visible under All and stays hidden und
   Object.assign(q.sessions, { root2: two().sessions.root2, x1: two().sessions.x1 });
   b.app.state.filters.projects = new Set(['proj']);
   await b.app.load();
-  assert.equal([...b.root.querySelectorAll('.project-label')].map((n) => n.textContent).includes('other'), false);
+  const after = [...b.root.querySelectorAll('.project-label')].map((n) => n.textContent);
+  assert.equal(after.includes('other'), false);
+  assert.equal(after.includes('proj'), true);
 });
 
 test('ArrowDown from the search box focuses the first row checkbox', async () => {
@@ -330,4 +332,108 @@ test('ArrowDown from the search box focuses the first row checkbox', async () =>
   click(btn(root, 'projects'));
   key($(root, 'input[name="search:projects"]'), 'ArrowDown');
   assert.equal(document.activeElement, $(root, 'input[name="project:proj"]'));
+});
+
+test('an explicit subset whose other items vanish reads "1 of 1", not All, and a new item stays hidden', async () => {
+  const p = two();
+  const { root, app } = boot(p);
+  await app.load();
+  click($(root, '#fmenu-projects .fmenu-row[data-key="proj"] button.only'));
+  const bShrunk = payload();
+  p.projects = bShrunk.projects;
+  await app.load();
+  assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 1');
+  const w = two();
+  p.projects = w.projects;
+  await app.load();
+  assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 2');
+  const names = [...root.querySelectorAll('.project-label')].map((n) => n.textContent);
+  assert.deepEqual(names, ['proj']);
+});
+
+test('the same root under two projects renders a single root checkbox', async () => {
+  const p = two();
+  p.projects[1].trees.push({ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true }, { id: 'w1', depth: 1, context: false }] });
+  const { root, app } = boot(p);
+  await app.load();
+  assert.equal(root.querySelectorAll('input[name="root:root"]').length, 1);
+});
+
+test('focus survives a reload that really rebuilds the row list', async () => {
+  const p = payload();
+  const { root, app } = boot(p);
+  await app.load();
+  click(btn(root, 'links'));
+  $(root, 'input[name="link:spawn"]').focus();
+  p.linkTypes = [...p.linkTypes, 'set_mode'];
+  await app.load();
+  assert.ok($(root, 'input[name="link:set_mode"]'), 'list was rebuilt with the new type');
+  assert.equal(document.activeElement, $(root, 'input[name="link:spawn"]'));
+});
+
+test('search matches group names and item names; disclose is disabled while searching and groups show expanded', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  const type = (q) => { search.value = q; search.dispatchEvent(new win.Event('input', { bubbles: true })); };
+  type('driv');
+  assert.ok($(root, 'input[name="link:send_prompt"]') && $(root, 'input[name="link:forward"]'));
+  assert.equal($(root, 'input[name="link:spawn"]'), null);
+  assert.equal(isHidden($(root, '#fmenu-links-g-driving')), false);
+  assert.equal($(root, '[data-group="driving"] button.disclose').hasAttribute('disabled'), true);
+  type('spawn');
+  assert.ok($(root, 'input[name="link:spawn"]'));
+  assert.deepEqual([...root.querySelectorAll('#fmenu-links [data-group]')].map((n) => n.getAttribute('data-group')), ['lifecycle']);
+  type('');
+  assert.equal($(root, '[data-group="lifecycle"] button.disclose').hasAttribute('disabled'), false);
+});
+
+test('clicking the button again closes; the query is cleared on close', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  search.value = 'wake';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  click(btn(root, 'links'));
+  assert.equal(isHidden(pop(root, 'links')), true);
+  click(btn(root, 'links'));
+  assert.equal($(root, 'input[name="search:links"]').value, '');
+  assert.ok($(root, 'input[name="link:send_prompt"]'));
+});
+
+test('a group toggle under a search flips only the visible members', async () => {
+  const p = payload();
+  p.linkTypes = ['spawn', 'set_mode', 'set_idle_timeout', 'renew_session', 'prune_session'];
+  const { root, app } = boot(p);
+  await app.load();
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  search.value = 'set_';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  click($(root, 'input[name="group:config"]'));
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  const on = (t) => $(root, `input[name="link:${t}"]`).checked;
+  assert.deepEqual(['set_mode', 'set_idle_timeout', 'renew_session', 'prune_session'].map(on), [false, false, true, true]);
+});
+
+test('legend focus stays on the clicked button; heartbeat follows wake with a dotted swatch', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const keys = [...root.querySelectorAll('.legend-item')].map((n) => n.getAttribute('data-key'));
+  assert.equal(keys[keys.indexOf('wake') + 1], 'heartbeat');
+  assert.equal($(root, '.legend-item[data-key="heartbeat"] .swatch').classList.contains('dotted'), true);
+  const b = $(root, '.legend-item[data-key="wake"]');
+  b.focus();
+  click(b);
+  assert.equal(document.activeElement, $(root, '.legend-item[data-key="wake"]'));
+});
+
+test('Trees None shows the empty hint inside the chart host', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click($(root, '#fmenu-roots button[name="none"]'));
+  assert.ok($(root, '.chart-host .empty-hint[role="status"]'));
 });

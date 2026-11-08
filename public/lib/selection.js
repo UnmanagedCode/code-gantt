@@ -1,8 +1,9 @@
 // Pure set operations over item keys, shared by the filter popovers and the legend.
 
-export function summary(label, selectedCount, total) {
-  if (selectedCount === total) return `${label} · All`;
-  if (selectedCount === 0) return `${label} · None`;
+/** `all` says whether the stored selection means All; an explicit subset never reads All, even when it covers every item. */
+export function summary(label, selectedCount, total, all = selectedCount === total) {
+  if (all) return `${label} · All`;
+  if (selectedCount === 0 && total > 0) return `${label} · None`;
   return `${label} · ${selectedCount} of ${total}`;
 }
 

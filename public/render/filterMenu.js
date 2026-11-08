@@ -64,7 +64,7 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, on
     groupChecks.push({ input: gInput, keys, count: null });
     const count = el('span', { class: 'count' });
     groupChecks.at(-1).count = count;
-    const disclose = el('button', { type: 'button', class: 'disclose', 'aria-expanded': String(isOpen), 'aria-controls': bodyId, 'aria-label': `${isOpen ? 'Collapse' : 'Expand'} ${g.label}`, 'data-focus-id': `disclose:${g.id}` }, isOpen ? '▾' : '▸');
+    const disclose = el('button', { type: 'button', class: 'disclose', 'aria-expanded': String(isOpen), 'aria-controls': bodyId, 'aria-label': `${isOpen ? 'Collapse' : 'Expand'} ${g.label}`, 'data-focus-id': `disclose:${g.id}`, disabled: query.trim() !== '' }, isOpen ? '▾' : '▸');
     listen(disclose, 'click', () => { toggleExpanded(g.id, !isOpen); });
     return el('div', { class: 'fmenu-group', 'data-group': g.id },
       el('div', { class: 'fmenu-group-head' }, disclose, el('label', { class: 'check' }, gInput, g.label, count)),
@@ -102,10 +102,10 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, on
     }
   }
 
-  function update(nextItems, nextSelected) {
+  function update(nextItems, nextSelected, all) {
     items = nextItems;
     selected = nextSelected;
-    summaryText.textContent = summary(label, items.filter((i) => selected.has(i.key)).length, items.length);
+    summaryText.textContent = summary(label, items.filter((i) => selected.has(i.key)).length, items.length, all);
     renderList();
     syncChecks();
   }

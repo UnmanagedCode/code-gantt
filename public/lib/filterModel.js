@@ -20,6 +20,12 @@ export function selectedKeys(filters, dim, items) {
   return new Set(filters[dim] ?? items.map((i) => i.key));
 }
 
+/** True when the stored selection means All: `null` for projects/roots, every item selected for links. */
+export function isAll(filters, dim, items) {
+  if (dim === 'links') return items.every((i) => selectedKeys(filters, dim, items).has(i.key));
+  return filters[dim] == null;
+}
+
 /** Writes `set` into `filters`. Covering every current item collapses projects/roots back to null (All). */
 export function applySelection(filters, dim, items, set) {
   if (dim === 'links') {
