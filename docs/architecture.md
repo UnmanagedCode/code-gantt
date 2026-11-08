@@ -13,7 +13,7 @@
 | `src/live.js` | `createLive`: store-stat poll, `/ws` hint, liveness fetch; network, timers injectable. |
 | `src/http/app.js` | `createApp`: routes, static allowlist, security headers, SSE client cap. |
 | `src/serial.js` | `createSerializer`: one-at-a-time async queue. |
-| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart`, `brush`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
+| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart` (the chart frame), `brush`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
 | `harness/playwright/` | `golden-path.mjs`, `real-store.mjs`, `fixture-store.mjs`, `resolve.mjs`. |
 
 ## Data flow
@@ -95,8 +95,8 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 ## Frontend zoom state
 
-- `state.view` in `public/app.js` is the only zoom store (`null` = `payload.window`). Wheel, pan and brush all write it through `renderChart`'s `onView`; *Reset zoom* and the Range select clear it.
-- `renderChart` rebuilds the svg on every render, so a gesture spanning renders keeps its state outside the svg (pan: module-level `dragX`) or defers renders (brush: `onBrush(true)` makes `render()` set `stale` and return; `onBrush(false)` runs the pending render).
+- `state.view` in `public/app.js` is the only zoom store (`null` = `payload.window`). Wheel, pan and brush all write it through `createChart(...).render`'s `onView`; *Reset zoom* and the Range select clear it.
+- `render` rebuilds the svgs on every render, so a gesture spanning renders keeps its state outside the svg (pan: module-level `dragX`) or defers renders (brush: `onBrush(true)` makes `render()` set `stale` and return; `onBrush(false)` runs the pending render).
 
 ## Frontend security
 
@@ -117,3 +117,19 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 ## Real-store harness
 
 `npm run harness:real` (needs `CC_PROJECTS_ROOT`; read-only, runs the safety tests first) boots against the real store, logs `diagnostics.horizon` and the counts, and asserts every link is at or after the horizon.
+
+## Frontend chart frame
+
+`createChart(host)` in `public/render/chart.js` builds the frame once inside `.chart-host`; `render` rebuilds only the svgs.
+
+| Element | Lifetime | Holds |
+|---|---|---|
+| `.chart-scale-box` > `svg.chart-scale` | box persistent, svg rebuilt | `rect.axis-bg`, `g.axis`, `rect.axis-hit` (the brush capture target) |
+| `.chart-scroll` > `svg.chart` (+ `p.empty-hint`) | scroller persistent, children rebuilt | labels, stripes, grid, bars, links |
+| `svg.chart-overlay` | persistent, children cleared each render | brush band (`y=0`, `height="100%"`), tooltip; the place for pointer-following marks |
+
+- Both svgs get the same `width` and `X = LABEL_W + scale.x(t)`, so ticks and grid align. `width` is `scroller.clientWidth` (scrollbar excluded); `scrollbar-gutter: stable` keeps it from jumping when overflow starts or stops.
+- `render` saves `scroller.scrollTop` and restores it after swapping the children; CSS sets `overflow-anchor: none`.
+- Wheel routing is per svg: `svg.chart-scale` always zooms; `svg.chart` zooms only with Ctrl/⌘ and otherwise scrolls natively.
+- The page itself never scrolls (`body` is a fixed-height flex column); `.chart-host` and `#details` are capped with `max-height: 100%`.
+- Limitation: browsers without `scrollbar-gutter` (Safari before 18.2) may clip a classic scrollbar's width off the right padding.

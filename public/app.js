@@ -1,7 +1,7 @@
 import { el, clear, text, listen } from './lib/dom.js';
 import { timeScale } from './lib/scale.js';
 import { applyFilters, defaultFilters } from './lib/layout.js';
-import { renderChart, LABEL_W } from './render/chart.js';
+import { createChart, LABEL_W } from './render/chart.js';
 import { createFilterBar } from './render/filters.js';
 import { createLegend } from './render/legend.js';
 import { renderDetails } from './render/details.js';
@@ -24,6 +24,7 @@ export function mount(root, api) {
   const chartHost = el('div', { class: 'chart-host' });
   const details = el('section', { id: 'details', role: 'region', 'aria-label': 'Session details' });
   const diag = el('footer', { class: 'diagnostics' });
+  const chart = createChart(chartHost);
   clear(root);
   root.append(banner, filtersHost, legendHost, el('div', { class: 'main' }, chartHost, details), diag);
 
@@ -60,22 +61,20 @@ export function mount(root, api) {
 
     filterBar.update(p, state.filters, state.rangeMs);
     legend.update(p, state.filters);
-    const width = chartHost.clientWidth || DEFAULT_WIDTH;
+    const width = chart.width() || DEFAULT_WIDTH;
     const plotW = Math.max(100, width - LABEL_W - 14);
     const v = state.view ?? p.window;
     const scale = timeScale(v.from, v.to, plotW);
     const layout = applyFilters(p, state.filters);
-    const svg = renderChart(chartHost, {
+    chart.render({
       payload: p, layout, scale, width, bounds: bounds(), selectedId: state.selected,
-      onSelect: (id) => { state.selected = id; hideTooltip(svg); render(); },
-      onHover: (lines, x, y) => showTooltip(svg, lines, x, y),
-      onLeave: () => hideTooltip(svg),
+      emptyHint: p.projects.length > 0 && layout.rows.length === 0 ? 'No projects or trees selected.' : null,
+      onSelect: (id) => { state.selected = id; hideTooltip(chart.overlay); render(); },
+      onHover: (lines, x, y) => showTooltip(chart.overlay, lines, x, y),
+      onLeave: () => hideTooltip(chart.overlay),
       onBrush: (active) => { brushing = active; if (!active && stale) { stale = false; render(); } },
       onView: (s) => { state.view = { from: s.from, to: s.to }; render(); },
     });
-    if (p.projects.length > 0 && layout.rows.length === 0) {
-      chartHost.prepend(el('p', { class: 'empty-hint hint', role: 'status' }, 'No projects or trees selected.'));
-    }
     renderDetails(details, state.selected && Object.hasOwn(p.sessions, state.selected) ? p.sessions[state.selected] : null);
   }
 
