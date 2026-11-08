@@ -10,6 +10,8 @@ const startOf = (rec) => Date.parse(rec.segments?.[0]?.at) || 0;
  *
  * - A `call` row draws a link only when it is `ok`, is not `spawn_instance` (spawn edges come from
  *   sessions.json) and names its caller in `actor.sessionId`; an unattributed (migrated) row draws nothing.
+ * - A `call` row with `forward` draws its tool link and a `forward` link (forward source → target) at the same
+ *   `ts`; both carry `pair: { sender, source }`. An unresolvable forward source leaves the tool link unpaired.
  * - A `call` row whose tool is not governed becomes type `other` and is counted in `unknownTools`.
  * - An id that cannot be placed in sessions.json is counted in `unresolved`.
  */
@@ -46,14 +48,13 @@ export function buildLinks({ sessions, events }) {
       const cond = resolve(ev.actor.sessionId, to);
       if (!to || !cond) continue;
       const tool = typeOfTool(ev.tool);
-      let from = cond;
-      let type = tool;
-      if (ev.forward) {
-        from = resolve(ev.forward, to);
-        type = 'forward';
-        if (!from) continue;
+      const link = { ts: ev.ts, type: tool, from: cond, to };
+      links.push(link);
+      const source = ev.forward ? resolve(ev.forward, to) : null;
+      if (source) {
+        link.pair = { sender: cond, source };
+        links.push({ ts: ev.ts, type: 'forward', from: source, to, pair: link.pair });
       }
-      links.push({ ts: ev.ts, type, from, to });
     } else if (ev.kind === 'wake') {
       const worker = resolve(ev.subject);
       const cond = resolve(ev.recipient, worker);

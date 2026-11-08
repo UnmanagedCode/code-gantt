@@ -68,6 +68,48 @@ try {
     const types = new Set(await page.$$eval('.link-g', (n) => n.map((x) => x.dataset.type)));
     for (const t of ['spawn', 'send_prompt', 'forward', 'wake', 'kill_instance', 'other']) assert.ok(types.has(t), `link type ${t} drawn`);
 
+    // A forwarded send_prompt is a send_prompt link plus a forward link, shifted a fixed number of pixels.
+    const forwards = payload.links.filter((l) => l.type === 'forward' && l.pair);
+    assert.equal(forwards.length, 2, 'two forwarded calls');
+    for (const f of forwards) {
+      assert.ok(payload.links.some((l) => l.type === 'send_prompt' && l.ts === f.ts && l.to === f.to && JSON.stringify(l.pair) === JSON.stringify(f.pair)), 'forward has its send_prompt partner');
+    }
+    const pairDx = () => page.evaluate(() => {
+      const end = (g) => { const c = g.querySelector('.link-end').getBoundingClientRect(); return { x: c.x + c.width / 2, y: c.y + c.height / 2 }; };
+      const sps = [...document.querySelectorAll('.link-g[data-type="send_prompt"]')].map(end);
+      return [...document.querySelectorAll('.link-g[data-type="forward"]')].map(end).map((f) => {
+        const sp = sps.find((p) => Math.abs(p.y - f.y) < 1 && Math.abs(p.x - f.x) < 5);
+        return sp ? f.x - sp.x : null;
+      });
+    });
+    const near = (dx) => assert.ok(dx != null && Math.abs(dx - 2) <= 0.5, `forward is ~2px right of its send_prompt (got ${dx})`);
+    const dx0 = await pairDx();
+    assert.equal(dx0.length, 2);
+    dx0.forEach(near);
+    const sameSide = forwards.find((f) => payload.sessions[f.from].title === 'Beta approx-end worker' && payload.sessions[f.to].title === 'Beta recent worker');
+    assert.ok(sameSide, 'the same-side pair is in the payload');
+    const fwHit = page.locator('.link-g[data-type="forward"] .link-hit').nth(forwards.length - 1 - forwards.indexOf(sameSide)); // forward groups are prepended, so the DOM order is reversed
+    await fwHit.scrollIntoViewIfNeeded();
+    const fb = await fwHit.boundingBox();
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.waitForSelector('g.tooltip');
+    const tipText = await page.textContent('g.tooltip');
+    for (const name of ['Conductor', 'Beta recent worker', 'Beta approx-end worker']) assert.ok(tipText.includes(name), `tooltip names ${name}`);
+    await page.screenshot({ path: path.join(shots, '13-forward-pair-tooltip.png'), fullPage: true });
+    // zoom in on the pair: the offset stays the same number of pixels
+    const axisPre = await page.$eval('.axis', (n) => n.textContent);
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.keyboard.down('Control');
+    for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -200);
+    await page.keyboard.up('Control');
+    await page.waitForFunction((b) => document.querySelector('.axis').textContent !== b, axisPre);
+    (await pairDx()).filter((d) => d != null).forEach(near);
+    const fbZ = await fwHit.boundingBox();
+    await page.mouse.move(5, 5);
+    await page.screenshot({ path: path.join(shots, '13b-forward-pair.png'),
+      clip: { x: Math.max(0, fbZ.x - 90), y: Math.max(0, fbZ.y - 110), width: 180, height: 160 } });
+    await page.click('button[name="reset-zoom"]');
+
     await page.click('button[name="filter:links"]');
     await page.fill('input[name="search:links"]', 'wake');
     await page.uncheck('input[name="link:wake"]');
@@ -124,10 +166,20 @@ try {
     const legendSend = page.locator('.legend-item[data-key="send_prompt"]');
     await legendSend.click();
     assert.equal(await page.locator('.link-g[data-type="send_prompt"]').count(), 0);
+    assert.equal(await page.locator('.link-g[data-type="forward"]').count(), 2, 'hiding send_prompt leaves forward');
     assert.equal(await legendSend.getAttribute('aria-pressed'), 'false');
     await page.screenshot({ path: path.join(shots, '07b-legend-muted.png'), fullPage: true });
     await legendSend.click();
     assert.ok(await page.locator('.link-g[data-type="send_prompt"]').count() > 0);
+    const countOf = (t) => page.locator(`.link-g[data-type="${t}"]`).count();
+    const fwdBefore = await countOf('forward');
+    const spBefore = await countOf('send_prompt');
+    const legendFwd = page.locator('.legend-item[data-key="forward"]');
+    await legendFwd.click();
+    assert.equal(await countOf('forward'), 0);
+    assert.equal(await countOf('send_prompt'), spBefore, 'hiding forward leaves send_prompt');
+    await legendFwd.click();
+    assert.equal(await countOf('forward'), fwdBefore);
 
     await page.click('button[name="filter:projects"]');
     await page.click('#fmenu-projects button[name="none"]');
