@@ -43,3 +43,7 @@ export function listen(node, type, fn) {
 export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
+
+export function unlisten(node, type, fn) {
+  node.removeEventListener(type, fn);
+}

@@ -2,7 +2,8 @@ import { el, clear, text, listen } from './lib/dom.js';
 import { timeScale } from './lib/scale.js';
 import { applyFilters, defaultFilters } from './lib/layout.js';
 import { renderChart, LABEL_W } from './render/chart.js';
-import { renderFilters } from './render/filters.js';
+import { createFilterBar } from './render/filters.js';
+import { createLegend } from './render/legend.js';
 import { renderDetails } from './render/details.js';
 import { showTooltip, hideTooltip } from './render/tooltip.js';
 
@@ -19,13 +20,20 @@ export function mount(root, api) {
 
   const banner = el('div', { class: 'banner', role: 'status' });
   const filtersHost = el('div', { class: 'filters' });
+  const legendHost = el('div', { class: 'legend-host' });
   const chartHost = el('div', { class: 'chart-host' });
   const details = el('section', { id: 'details', role: 'region', 'aria-label': 'Session details' });
   const diag = el('footer', { class: 'diagnostics' });
   clear(root);
-  root.append(banner, filtersHost, el('div', { class: 'main' }, chartHost, details), diag);
+  root.append(banner, filtersHost, legendHost, el('div', { class: 'main' }, chartHost, details), diag);
 
   const bounds = () => state.payload.window;
+  const filterBar = createFilterBar(filtersHost, {
+    onChange: () => render(),
+    onRange: (ms) => { state.rangeMs = ms; state.view = null; load(); },
+    onResetZoom: () => { state.view = null; render(); },
+  });
+  const legend = createLegend(legendHost, { onChange: () => render() });
 
   function render() {
     const p = state.payload;
@@ -47,11 +55,8 @@ export function mount(root, api) {
       ...d.errors,
     ].filter(Boolean).join('  ·  ')));
 
-    renderFilters(filtersHost, p, state.filters, state.rangeMs, {
-      onChange: render,
-      onRange: (ms) => { state.rangeMs = ms; state.view = null; load(); },
-      onResetZoom: () => { state.view = null; render(); },
-    });
+    filterBar.update(p, state.filters, state.rangeMs);
+    legend.update(p, state.filters);
     const width = chartHost.clientWidth || DEFAULT_WIDTH;
     const plotW = Math.max(100, width - LABEL_W - 14);
     const v = state.view ?? p.window;
@@ -64,6 +69,9 @@ export function mount(root, api) {
       onLeave: () => hideTooltip(svg),
       onView: (s) => { state.view = { from: s.from, to: s.to }; render(); },
     });
+    if (p.projects.length > 0 && layout.rows.length === 0) {
+      chartHost.prepend(el('p', { class: 'empty-hint hint', role: 'status' }, 'No projects or trees selected.'));
+    }
     renderDetails(details, state.selected && Object.hasOwn(p.sessions, state.selected) ? p.sessions[state.selected] : null);
   }
 

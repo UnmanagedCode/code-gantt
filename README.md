@@ -7,7 +7,7 @@ A [code-conductor](https://github.com) (cc) plugin that shows conducted session 
 - **Rows:** a conductor and its workers (nested leads included), one bar per session. A tree that touches several projects appears under each of them; ancestors outside the group are dimmed.
 - **Bars:** start → end. The end is `exited`, `killed`, `live`, or **approximate** (hatched tail + "approximate end" in tooltip and details). Turn segments, renew/prune rotation markers and playbook stage bands are drawn on the bar.
 - **Links:** typed connectors between sessions at the time of the interaction (spawn, prompts, forwards, plan approve/reject, answers, interrupts, kills, mode/idle-timeout/renew/prune, wakes). Unknown tools show as `other`.
-- **Controls:** date range, project, tree and link-type filters; a separate toggle for heartbeat wakes; wheel zoom and drag pan; click a bar for details.
+- **Controls:** date range; Projects/Trees/Links dropdown filters with search, All/None and "only"; link types grouped by kind with tri-state group toggles; a clickable link legend that shows/hides a type; `wake heartbeat` is its own item in the Wakes group; an empty Projects/Trees selection draws nothing (with a hint); wheel zoom and drag pan; click a bar for details.
 
 Details: [docs/features.md](docs/features.md).
 

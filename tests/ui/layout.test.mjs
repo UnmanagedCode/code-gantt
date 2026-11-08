@@ -89,3 +89,15 @@ test('link endpoints map to their rows’ y; the shared root row is picked withi
   const hidden = applyFilters(p, { ...defaultFilters(p), from: 4000, to: 7000 });
   assert.equal(hidden.links.some((x) => x.to === 'a1'), false);
 });
+
+test('an empty project Set or root Set draws no rows and no links; null still draws everything', () => {
+  const p = payload();
+  for (const key of ['projects', 'roots']) {
+    const f = defaultFilters(p);
+    f[key] = new Set();
+    const res = applyFilters(p, f);
+    assert.deepEqual([res.rows.length, res.links.length], [0, 0], key);
+  }
+  const all = applyFilters(p, defaultFilters(p));
+  assert.equal(all.rows.length > 0 && all.links.length === 5, true);
+});

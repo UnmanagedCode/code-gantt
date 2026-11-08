@@ -40,7 +40,11 @@ Vertical connector at the event time from source row to target row, ending in a 
 ## Controls
 
 - **Range:** last 6 h / 24 h / 72 h / 7 d / 14 d (refetches the window).
-- **Projects, Trees, Links:** checkboxes. `wake heartbeat` is independent of `wake`.
+- **Projects, Trees, Links:** one dropdown popover each (button shows `Label · All`, `Label · None` or `Label · n of m`). Each has a search box, *All* / *None* (acting on the rows the search leaves visible) and an *only* button per row. One popover is open at a time; it stays open across toggles and live reloads, and closes on Esc, a click outside, or Tab out.
+- **Selection semantics:** *All* means every project/tree, including ones that appear after load (range change, live data). An explicit subset keeps new items hidden. An empty Projects or Trees selection draws no rows and the chart area shows a hint. Filter state is in memory only; a page reload resets it.
+- **Link groups:** the Links popover groups types by kind (`LINK_GROUPS` in `public/lib/linkGroups.js`): Lifecycle, Driving, Plans, Wakes, Config, Other. A type missing from the table goes to Other. Each group has a tri-state checkbox and a disclose button (collapsed by default; searching expands matching groups). `wake heartbeat` is an item of Wakes, independent of `wake`.
+- **Legend:** a row of buttons under the toolbar, one per link type in the popover's order; click toggles the type (muted + struck through when hidden). It shares state with the Links popover.
+- **Keyboard:** ArrowDown on a menu button opens it; ArrowDown/ArrowUp move between row checkboxes (and the search box); ArrowRight/ArrowLeft expand/collapse a group; Space toggles; Esc closes and refocuses the button.
 - **Zoom/pan:** wheel zooms around the cursor, drag pans; both clamped to the loaded window. *Reset zoom* restores the window.
 - **Details panel:** click a bar for id, title, project, worktree, model, playbook, state, start/end, turn count, rotations and stage history.
 - **Banner:** says so when the event log has no complete history yet (nothing is drawn).

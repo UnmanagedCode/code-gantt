@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
 
 const win = new Window({ url: 'http://localhost/', width: 1200, height: 800 });
-for (const k of ['document', 'Node', 'Element', 'Event', 'MouseEvent']) globalThis[k] = win[k];
+for (const k of ['document', 'Node', 'Element', 'Event', 'MouseEvent', 'KeyboardEvent']) globalThis[k] = win[k];
 globalThis.window = win;
 
 const { el, svgEl } = await import('../../public/lib/dom.js');
@@ -162,4 +162,172 @@ test('with horizon null the status banner is non-empty; with a horizon it is emp
   const empty = boot(payload({ projects: [], sessions: {}, links: [] }));
   await empty.app.load();
   assert.equal(empty.root.querySelector('.banner').textContent, '');
+});
+
+// ---- filter popovers and legend ----
+const two = () => {
+  const p = payload();
+  p.projects.push({ project: 'other', trees: [{ rootId: 'root2', rows: [{ id: 'root2', depth: 0, context: true }, { id: 'x1', depth: 1, context: false }] }] });
+  p.sessions.root2 = { ...p.sessions.root, id: 'root2', title: 'Second' };
+  p.sessions.x1 = { ...p.sessions.w2, id: 'x1', endKind: 'exited', end: 9000 };
+  return p;
+};
+const $ = (root, sel) => root.querySelector(sel);
+const btn = (root, dim) => $(root, `button[name="filter:${dim}"]`);
+const pop = (root, dim) => $(root, `#fmenu-${dim}`);
+const isHidden = (n) => n.hasAttribute('hidden');
+const summaryOf = (root, dim) => btn(root, dim).textContent.replace('▾', '').trim();
+const setChecked = (input, on) => { input.checked = on; input.dispatchEvent(new win.Event('change', { bubbles: true })); };
+const key = (node, k) => node.dispatchEvent(new win.KeyboardEvent('keydown', { key: k, bubbles: true }));
+const wakeLinks = (root) => [...root.querySelectorAll('.link-g[data-type="wake"]')];
+const bars = (root) => root.querySelectorAll('.bar-g').length;
+
+test('summary buttons reflect the selection: All, None, n of m', async () => {
+  const { root, app } = boot(two());
+  await app.load();
+  assert.equal(summaryOf(root, 'projects'), 'Projects · All');
+  click($(root, '#fmenu-projects button[name="none"]'));
+  assert.equal(summaryOf(root, 'projects'), 'Projects · None');
+  click($(root, '#fmenu-projects .fmenu-row[data-key="proj"] button.only'));
+  assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 2');
+});
+
+test('open focuses the search box; Escape closes and refocuses the button; mousedown outside closes', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  assert.equal(btn(root, 'links').getAttribute('aria-expanded'), 'false');
+  assert.equal(isHidden(pop(root, 'links')), true);
+  click(btn(root, 'links'));
+  assert.equal(btn(root, 'links').getAttribute('aria-expanded'), 'true');
+  assert.equal(isHidden(pop(root, 'links')), false);
+  assert.equal(document.activeElement, $(root, 'input[name="search:links"]'));
+  key($(root, 'input[name="search:links"]'), 'Escape');
+  assert.equal(isHidden(pop(root, 'links')), true);
+  assert.equal(document.activeElement, btn(root, 'links'));
+  click(btn(root, 'links'));
+  document.body.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+  assert.equal(btn(root, 'links').getAttribute('aria-expanded'), 'false');
+});
+
+test('only one popover is open at a time', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'projects'));
+  click(btn(root, 'roots'));
+  assert.equal(isHidden(pop(root, 'projects')), true);
+  assert.equal(isHidden(pop(root, 'roots')), false);
+});
+
+test('search hides non-matching rows; None with a search clears only the visible rows', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  search.value = 'wake';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.equal($(root, 'input[name="link:send_prompt"]'), null);
+  assert.ok($(root, 'input[name="link:wake"]') && $(root, 'input[name="heartbeat"]'));
+  click($(root, '#fmenu-links button[name="none"]'));
+  assert.equal(wakeLinks(root).length, 0);
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.equal($(root, 'input[name="link:spawn"]').checked, true);
+  assert.equal($(root, 'input[name="link:wake"]').checked, false);
+  assert.equal(root.querySelectorAll('.link-g[data-type="spawn"]').length, 1);
+});
+
+test('"only" on wake draws only the non-heartbeat wake links', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click($(root, '.fmenu-row[data-key="wake"] button.only'));
+  assert.deepEqual(wakeLinks(root).map((n) => n.classList.contains('heartbeat')), [false]);
+  assert.equal(root.querySelectorAll('.link-g:not([data-type="wake"])').length, 0);
+});
+
+test('group checkbox is tri-state: partial → all → none; disclose toggles expansion', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  setChecked($(root, 'input[name="link:wake"]'), false);
+  const g = () => $(root, 'input[name="group:wakes"]');
+  assert.equal(g().indeterminate, true);
+  assert.equal(g().checked, false);
+  click(g());
+  assert.equal($(root, 'input[name="link:wake"]').checked, true);
+  assert.equal(g().checked && !g().indeterminate, true);
+  click(g());
+  assert.equal(wakeLinks(root).length, 0);
+  const body = $(root, '#fmenu-links-g-wakes');
+  const d = () => $(root, '[data-group="wakes"] button.disclose');
+  assert.equal(isHidden(body), true);
+  click(d());
+  assert.equal(d().getAttribute('aria-expanded'), 'true');
+  assert.equal(isHidden($(root, '#fmenu-links-g-wakes')), false);
+});
+
+test('legend and Links popover share state', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const item = () => $(root, '.legend-item[data-key="wake"]');
+  assert.equal(item().getAttribute('aria-pressed'), 'true');
+  click(item());
+  assert.equal(item().getAttribute('aria-pressed'), 'false');
+  assert.equal($(root, 'input[name="link:wake"]').checked, false);
+  assert.deepEqual(wakeLinks(root).map((n) => n.classList.contains('heartbeat')), [true]);
+  assert.equal(summaryOf(root, 'links'), 'Links · 5 of 6');
+  setChecked($(root, 'input[name="link:wake"]'), true);
+  assert.equal(item().getAttribute('aria-pressed'), 'true');
+});
+
+test('toggling a checkbox or reloading keeps the popover open and the focus on the same checkbox', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'links'));
+  const box = $(root, 'input[name="link:spawn"]');
+  box.focus();
+  setChecked(box, false);
+  assert.equal(isHidden(pop(root, 'links')), false);
+  assert.equal(document.activeElement, $(root, 'input[name="link:spawn"]'));
+  await app.load();
+  assert.equal(isHidden(pop(root, 'links')), false);
+  assert.equal(document.activeElement?.getAttribute('name'), 'link:spawn');
+});
+
+test('Projects None draws no bars and shows the empty hint; All restores them and removes the hint', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  assert.equal($(root, '.empty-hint'), null);
+  click($(root, '#fmenu-projects button[name="none"]'));
+  assert.equal(bars(root), 0);
+  assert.equal($(root, '.empty-hint[role="status"]') !== null, true);
+  click($(root, '#fmenu-projects button[name="all"]'));
+  assert.ok(bars(root) > 0);
+  assert.equal($(root, '.empty-hint'), null);
+});
+
+test('a project that appears on reload is visible under All and stays hidden under an explicit subset', async () => {
+  const p = payload();
+  const { root, app } = boot(p);
+  await app.load();
+  const names = () => [...root.querySelectorAll('.project-label')].map((n) => n.textContent);
+  const withNew = two();
+  Object.assign(p, withNew);
+  await app.load();
+  assert.ok(names().includes('other'));
+  // explicit subset: only proj; then another project appears
+  const q = payload();
+  const b = boot(q);
+  await b.app.load();
+  q.projects.push(two().projects[1]);
+  Object.assign(q.sessions, { root2: two().sessions.root2, x1: two().sessions.x1 });
+  b.app.state.filters.projects = new Set(['proj']);
+  await b.app.load();
+  assert.equal([...b.root.querySelectorAll('.project-label')].map((n) => n.textContent).includes('other'), false);
+});
+
+test('ArrowDown from the search box focuses the first row checkbox', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'projects'));
+  key($(root, 'input[name="search:projects"]'), 'ArrowDown');
+  assert.equal(document.activeElement, $(root, 'input[name="project:proj"]'));
 });
