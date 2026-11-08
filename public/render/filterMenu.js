@@ -88,7 +88,7 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, emptyText, o
     groupChecks = [];
     const vis = visible();
     list.append(...vis.map((g) => (grouped ? group(g) : g.items.map(row))).flat());
-    empty.textContent = items.length === 0 ? (emptyText ?? '') : vis.length === 0 && query.trim() !== '' ? 'No matches' : '';
+    empty.textContent = items.length === 0 && emptyText ? emptyText : vis.length === 0 && query.trim() !== '' ? 'No matches' : '';
     if (focusId) [...list.querySelectorAll('[data-focus-id]')].find((n) => n.getAttribute('data-focus-id') === focusId)?.focus();
   }
 

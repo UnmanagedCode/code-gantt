@@ -560,6 +560,13 @@ test('Projects collapse to All only when the hidden projects are selected too', 
   assert.equal(summaryOf(b.root, 'projects'), 'Projects · 2 of 3');
 });
 
+test('Projects never narrows the Conductors list', async () => {
+  const { root, app } = boot(two());
+  await app.load();
+  click($(root, '#fmenu-projects .fmenu-row[data-key="proj"] button.only'));
+  assert.deepEqual(listedKeys(root, 'roots'), ['root', 'root2']);
+});
+
 test('Conductors None leaves the Projects list empty with a status and names conductors in the chart hint', async () => {
   const { root, app } = boot(three());
   await app.load();
