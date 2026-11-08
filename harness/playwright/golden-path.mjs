@@ -184,18 +184,23 @@ try {
     assert.equal(await page.locator('.brush-band').count(), 0, 'Escape aborts the brush');
     assert.equal(await axisText(), axisBrushBefore, 'aborted brush does not zoom');
     await page.click('button[name="reset-zoom"]');
-    const target = await page.evaluate(() => {
+    // data-id is not unique (a context ancestor renders once per project), so click by index among all bars.
+    const detailsBefore = await page.textContent('#details');
+    const pick = await page.evaluate((shownText) => {
       const r = document.querySelector('.chart-scroll').getBoundingClientRect();
-      const bar = [...document.querySelectorAll('.bar-g')].find((g) => {
+      const bars = [...document.querySelectorAll('.bar-g')];
+      const index = bars.findIndex((g) => {
         const b = g.getBoundingClientRect();
-        return b.top >= r.top && b.bottom <= r.bottom;
+        return b.top >= r.top && b.bottom <= r.bottom && !new RegExp(`ID\\s*${g.getAttribute('data-id')}(?!\\w)`).test(shownText);
       });
-      return bar?.getAttribute('data-id') ?? null;
-    });
-    assert.ok(target, 'a bar is fully visible in the scrolled rows');
+      return index < 0 ? null : { index, id: bars[index].getAttribute('data-id') };
+    }, detailsBefore);
+    assert.ok(pick, 'a visible bar other than the selected one exists in the scrolled rows');
     const topBeforeClick = (await scrollInfo()).top;
-    await page.locator(`.bar-g[data-id="${target}"]`).click();
-    assert.match(await page.textContent('#details'), new RegExp(`ID\\s*${target}`), 'details show the clicked bar');
+    await page.locator('.bar-g').nth(pick.index).click();
+    const detailsAfter = await page.textContent('#details');
+    assert.notEqual(detailsAfter, detailsBefore, 'details changed');
+    assert.match(detailsAfter, new RegExp(`ID\\s*${pick.id}`), 'details show the clicked bar');
     assert.equal((await scrollInfo()).top, topBeforeClick, 'selecting keeps the scroll offset');
     await page.setViewportSize({ width: 1500, height: 900 });
 

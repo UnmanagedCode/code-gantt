@@ -848,3 +848,11 @@ test('the chart width comes from the scroller clientWidth', async () => {
   assert.equal(sq(root, 'svg.chart').getAttribute('width'), '900');
   assert.equal(sq(root, 'svg.chart-scale').getAttribute('width'), '900');
 });
+
+test('tooltips stay in the accessibility tree; only the brush band is hidden', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  assert.equal(sq(root, '.chart-overlay').hasAttribute('aria-hidden'), false);
+  drag(root, 100, 300);
+  assert.equal(sq(root, '.brush-band').getAttribute('aria-hidden'), 'true');
+});
