@@ -36,6 +36,8 @@ export function applyFilters(payload, f) {
   for (const r of rows) if (r.kind === 'row') (rowsOf.get(r.id) ?? rowsOf.set(r.id, []).get(r.id)).push(r);
   const centre = (r) => r.y + ROW_H / 2;
 
+  // role and tree are per session, so any row pair decides
+  const rootLead = (x, y) => x.head === 'conductor' && y.head === 'lead' && y.rootId === x.id;
   const links = [];
   const stubs = [];
   payload.links.forEach((l, i) => {
@@ -44,16 +46,20 @@ export function applyFilters(payload, f) {
     const a = rowsOf.get(l.from);
     const b = rowsOf.get(l.to);
     if (!a || !b) return;
-    // the group holding both ends where most of them have their own row; ties go to the first in row order
+    // the groups holding both ends; the line goes in the one where most ends have their own row, ties to the first in row order
+    const shared = [...new Set(a.map((r) => r.group))].filter((g) => b.some((r) => r.group === g));
     let best = null;
     let bestHome = -1;
-    for (const g of new Set(a.map((r) => r.group))) {
-      if (!b.some((r) => r.group === g)) continue;
+    for (const g of shared) {
       const home = [a, b].filter((rs) => rs.some((r) => r.group === g && !r.context)).length;
       if (home > bestHome) { best = g; bestHome = home; }
     }
     if (best != null) {
       links.push({ ...l, key: `l:${i}`, y1: centre(anchor(a, best)), y2: centre(anchor(b, best)) });
+      // a root and its own section lead are repeated as context headers in each of the lead's project bands: draw the link there too
+      if (rootLead(a[0], b[0]) || rootLead(b[0], a[0])) {
+        for (const g of shared) if (g !== best) links.push({ ...l, key: `l:${i}:${g}`, y1: centre(anchor(a, g)), y2: centre(anchor(b, g)) });
+      }
       return;
     }
     // no shared group: no line, a stub at each end pointing at the other end's row
