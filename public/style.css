@@ -119,7 +119,6 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .link-hit { fill: transparent; pointer-events: all; cursor: help; }
 .swatch { border-top-color: var(--c, var(--muted-foreground)); }
 .link-g.heartbeat .link { stroke-dasharray: 2 3; }
-.link-g[data-type="forward"] .link { stroke-dasharray: 1 2; }
 [data-type="spawn"] { --c: color-mix(in oklab, var(--foreground) 55%, var(--card)); }
 [data-type="send_prompt"] { --c: var(--s0); }
 [data-type="forward"] { --c: var(--s6); }
