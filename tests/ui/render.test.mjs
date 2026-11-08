@@ -971,6 +971,9 @@ test('the readout pill sits right of the line, and flips left of it near the rig
   hover(root, 200);
   let [x, w] = pill();
   assert.ok(x > LABEL_W + 200 && x + w <= width);
+  hover(root, 700);
+  [x, w] = pill();
+  assert.ok(x > LABEL_W + 700 && x + w <= width, 'mid-plot still sits right of the line');
   hover(root, 830);
   [x, w] = pill();
   assert.ok(x + w <= LABEL_W + 830 && x >= 0 && x + w <= width);
