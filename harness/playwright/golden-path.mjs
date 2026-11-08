@@ -139,10 +139,15 @@ try {
 
     // Scrolled body: the rows scroll inside the chart while the chrome stays put.
     await page.setViewportSize({ width: 1500, height: 340 });
+    // The resize handler re-renders the svgs; wait for it so no measurement races a svg swap.
+    await page.waitForFunction(() => {
+      const w = document.querySelector('svg.chart-scale')?.getAttribute('width');
+      return w != null && Number(w) === document.querySelector('.chart-scroll').clientWidth;
+    });
     const scrollInfo = () => page.$eval('.chart-scroll', (n) => ({ top: n.scrollTop, sh: n.scrollHeight, ch: n.clientHeight }));
     const info0 = await scrollInfo();
     assert.ok(info0.sh > info0.ch, 'fixture is tall enough to scroll the rows');
-    const boxes = () => Promise.all(['.filters', '.legend-host', 'svg.chart-scale', '#details'].map((s) => page.locator(s).boundingBox()));
+    const boxes = () => Promise.all(['.filters', '.legend-host', '.chart-scale-box', '#details'].map((s) => page.locator(s).boundingBox()));
     const boxesBefore = await boxes();
     const axisText = () => page.$eval('.axis', (n) => n.textContent);
     const axisBefore2 = await axisText();
