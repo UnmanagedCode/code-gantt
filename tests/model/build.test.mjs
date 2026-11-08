@@ -255,6 +255,8 @@ async function horizonStore(extraSessions = {}, extraEvents = [], lateEvents = [
   await state.refreshStores();
   return { s, state, p: buildPayload(state, HW) };
 }
+// a row that overlaps the horizon draws; one that ended earlier is a label-only ancestor
+const drawsFrom = (id, p) => p.sessions[id].end == null || p.sessions[id].end >= Date.parse(p.diagnostics.horizon);
 const treeRows = (p, rootId) => p.trees.find((t) => t.rootId === rootId)?.rows;
 
 // P1: a session whose bar ended before H is hidden with its links; a tree of only such sessions is absent.
@@ -263,7 +265,7 @@ test('a session whose bar ends before the horizon is not shown, nor are its link
   for (const id of ['eeee0001', 'oooo0000', 'oooo0001']) assert.equal(id in p.sessions, false, id);
   assert.equal(p.trees.some((t) => t.rootId === 'oooo0000'), false);
   assert.ok(p.links.every((l) => l.from in p.sessions && l.to in p.sessions));
-  assert.deepEqual(treeRows(p, 'cccc0000').filter((r) => r.depth > 0).map((r) => r.id).sort(), ['llll0001', 'nnnn0001', 'ssss0001']);
+  assert.deepEqual(treeRows(p, 'cccc0000').filter((r) => r.depth > 0 && drawsFrom(r.id, p)).map((r) => r.id).sort(), ['llll0001', 'nnnn0001', 'ssss0001']);
   s.cleanup();
 });
 
@@ -286,11 +288,11 @@ test('a bar spanning the horizon is clipped: start = horizon, the stage held is 
   s.cleanup();
 });
 
-// P3: the sweep. Nothing before H is drawn for a non-context row, whatever window is asked for.
+// P3: the sweep. Nothing before H is drawn for a row that overlaps H (a label-only ancestor draws nothing), whatever window is asked for.
 test('nothing before the horizon is drawn: for every non-context session the start, marks, rotations, stage froms and turn starts, and every link ts, are >= horizon; window.from is clamped to it', async () => {
   const { s, state, p } = await horizonStore();
   assert.equal(p.window.from, H);
-  const drawn = new Set(p.trees.flatMap((t) => t.rows.filter((r) => r.depth > 0).map((r) => r.id)));
+  const drawn = new Set(p.trees.flatMap((t) => t.rows.filter((r) => r.depth > 0 && drawsFrom(r.id, p)).map((r) => r.id)));
   assert.ok(drawn.size >= 3);
   for (const id of drawn) {
     const b = p.sessions[id];
@@ -449,5 +451,36 @@ test('section leads: a lead that overlaps alone keeps its tree; a tree where onl
   assert.deepEqual(p.trees.map((t) => t.rootId), ['cccc0000']);
   assert.deepEqual(p.trees[0].rows.map((r) => [r.id, r.depth, r.role]), [['cccc0000', 0, 'conductor'], ['lead0001', 1, 'lead']]);
   assert.equal('work0001' in p.sessions, false);
+  s.cleanup();
+});
+
+test('a label-only ancestor that ended before the horizon draws nothing', async () => {
+  const ended = evSession(T0 + min(65), SYSTEM, 'par00001', 'exit', { cause: 'exited' });
+  const { s, p } = await horizonStore({
+    rtb00001: sess({ id: 'rtb00001', at: iso(T0 + min(7)) }),
+    par00001: sess({ id: 'par00001', parent: 'rtb00001', project: 'p', conducted: true, at: iso(T0 + min(11)) }),
+    kid00001: sess({ id: 'kid00001', parent: 'par00001', project: 'p', conducted: true, at: iso(T0 + min(62)) }),
+  }, [ended], [evTurn(T0 + min(140), 'cccc0000', 'kid00001', 'start')]);
+  const b = p.sessions.par00001;
+  assert.ok(b.end < H);
+  assert.deepEqual([b.marks, b.rotations, b.stages, b.turns], [[], [], [], []]);
+  assert.ok(treeRows(p, 'rtb00001').some((r) => r.id === 'par00001'));
+  s.cleanup();
+});
+
+test('trees are ordered by root start, whatever the order or ids in sessions.json', async () => {
+  const s = makeStore({
+    sessions: {
+      zzzz0002: sess({ id: 'zzzz0002', at: iso(T0 + min(5)) }),
+      zzzz0003: sess({ id: 'zzzz0003', parent: 'zzzz0002', project: 'p', conducted: true, at: iso(T0 + min(6)) }),
+      aaaa0002: sess({ id: 'aaaa0002', at: iso(T0 + min(50)) }),
+      aaaa0003: sess({ id: 'aaaa0003', parent: 'aaaa0002', project: 'p', conducted: true, at: iso(T0 + min(51)) }),
+    },
+    events: horizonRows(T0, 'zzzz0003', 'zzzz0002'),
+  });
+  const state = createState(s.config);
+  await state.refreshStores();
+  const p = buildPayload(state, win);
+  assert.deepEqual(p.trees.map((t) => t.rootId), ['zzzz0002', 'aaaa0002']);
   s.cleanup();
 });

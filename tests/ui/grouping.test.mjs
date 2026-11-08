@@ -15,7 +15,7 @@ const trees = () => [{ rootId: 'c', rows: [
   row('d1', 1, 'worker'),
 ] }];
 const sessions = () => Object.fromEntries([
-  S('c', 'rootproj'), S('l1', CP), S('w1', 'alpha'), S('w2', 'beta'), S('l2', CP), S('d1', 'alpha'),
+  S('c', CP), S('l1', CP), S('w1', 'alpha'), S('w2', 'beta'), S('l2', CP), S('d1', 'alpha'),
 ].map((s) => [s.id, s]));
 // kind:id|label:depth:flags:group
 const sig = (rows) => rows.map((r) => (r.kind === 'band'
@@ -102,12 +102,34 @@ test('time filter drops a unit with no overlapping row of its own, but keeps an 
   assert.deepEqual(sig(kept), ['band:beta:beta', 'r:0:ctx+conductor:beta', 'x:1:ctx:beta', 'y:2:home:beta']);
 });
 
-test('time filter keeps a lead self-entry only while the lead overlaps', () => {
+test('time filter keeps a lead’s Conductor row while the lead overlaps or has a kept worker; a lead with neither is dropped', () => {
   const ss = sessions();
-  ss.l2 = S('l2', CP, 100, 200);
+  ss.l1 = S('l1', CP, 100, 200); // outside the window, but w1 (alpha) overlaps
+  ss.l2 = S('l2', CP, 100, 200); // outside the window, no workers
   const rows = groupRows(trees(), ss, sel({ from: 700, to: 1000 }));
+  assert.ok(rows.some((r) => r.id === 'l1' && r.group === CP && !r.context), 'l1 stays home in Conductor');
   assert.equal(rows.some((r) => r.id === 'l2'), false);
-  assert.ok(rows.some((r) => r.id === 'l1' && r.group === CP));
+  assert.equal(rows[0].label, 'Conductor');
+});
+
+test('a unit row of the conductor interleaves with lead headers by tree order', () => {
+  const t = [{ rootId: 'r', rows: [row('r', 0, 'conductor'), row('l1', 1, 'lead'), row('d', 1, 'worker'), row('l2', 1, 'lead')] }];
+  const rows = groupRows(t, { r: S('r'), l1: S('l1', CP), d: S('d', CP), l2: S('l2', CP) }, sel());
+  assert.deepEqual(rows.filter((r) => r.kind === 'row').map((r) => r.id), ['r', 'l1', 'd', 'l2']);
+});
+
+test('a session with no end is open-ended: it overlaps any window after its start', () => {
+  const t = [{ rootId: 'r', rows: [row('r', 0, 'conductor'), row('x', 1, 'worker')] }];
+  const ss = { r: S('r'), x: { id: 'x', project: 'alpha', start: 100, end: null } };
+  assert.deepEqual(sig(groupRows(t, ss, sel({ from: 5000, to: 6000 }))), ['band:alpha:alpha', 'r:0:ctx+conductor:alpha', 'x:1:home:alpha']);
+  const m = treeProjects({ trees: t, sessions: ss, window: { from: 5000, to: 6000 }, now: NOW });
+  assert.deepEqual([...m.get('r')], ['alpha']);
+});
+
+test('the Conductor label and first position follow conductorProject, not a literal', () => {
+  const t = [{ rootId: 'r', rows: [row('r', 0, 'conductor'), row('l', 1, 'lead'), row('x', 1, 'worker')] }];
+  const rows = groupRows(t, { r: S('r'), l: S('l', 'zzz'), x: S('x', 'alpha') }, sel({ conductorProject: 'zzz' }));
+  assert.deepEqual(rows.filter((r) => r.kind === 'band').map((r) => [r.project, r.label]), [['zzz', 'Conductor'], ['alpha', 'alpha']]);
 });
 
 test('treeProjects lists the projects of each tree’s non-root rows that overlap the payload window', () => {

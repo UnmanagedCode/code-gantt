@@ -147,6 +147,11 @@ try {
     assert.deepEqual(groups.Conductor, ['c0000004', '5ec00001', '5ec00002'], 'Conductor holds the conductor and its section leads');
     assert.ok(groups.alpha.includes('5ec00001') && groups.beta.includes('5ec00001'), 'the lead repeats as a header in each project it drives');
     assert.ok(groups.alpha.includes('e0000001') && groups.beta.includes('e0000002'));
+    const rootRowCtx = await page.evaluate(() => {
+      const label = [...document.querySelectorAll('.row-label')].find((n) => n.textContent === 'Leads conductor');
+      return label?.classList.contains('context') && label.classList.contains('head');
+    });
+    assert.ok(rootRowCtx, 'the conductor header in Conductor is a dimmed copy, never home');
     const inConductor = await page.evaluate(() => {
       const g = document.querySelector('.link-g[data-type="send_prompt"][data-from="c0000004"][data-to="5ec00001"]:not(.link-stub)');
       if (!g) return false;

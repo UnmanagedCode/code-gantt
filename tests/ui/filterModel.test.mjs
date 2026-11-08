@@ -104,6 +104,16 @@ test('the conductor project is listed first and labelled Conductor; projects com
   assert.deepEqual(items.map((i) => [i.key, i.label]), [['.conduct', 'Conductor'], ['A', 'A'], ['B', 'B']]);
 });
 
+test('the label and first position of the conductor project follow payload.conductorProject', () => {
+  const p = payload();
+  p.conductorProject = 'zzz';
+  p.trees[0].rows.push({ id: 'l', depth: 1, role: 'lead' });
+  p.sessions.l = S('l', { project: 'zzz' });
+  assert.deepEqual(dimensionItems(p).projects.map((i) => [i.key, i.label]), [['zzz', 'Conductor'], ['A', 'A'], ['B', 'B']]);
+  p.sessions.l.project = '.conduct';
+  assert.deepEqual(dimensionItems(p).projects.map((i) => i.label), ['.conduct', 'A', 'B']);
+});
+
 test('a project whose only rows are outside the payload window is not listed', () => {
   const p = payload();
   p.sessions.b1 = S('b1', { project: 'B', start: 20_000, end: 30_000 });

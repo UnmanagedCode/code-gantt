@@ -177,8 +177,10 @@ test('a stub sits on the end’s own row, else on its topmost copy', () => {
   const res = applyFilters(p, f);
   const src = res.stubs.find((s) => s.end === 'source');
   assert.equal(src.y, yOf(res, 'l1', 'alpha'));
+  assert.equal(src.dir, 1, 'the target row is below the source copy');
   const tgt = res.stubs.find((s) => s.end === 'target');
   assert.equal(tgt.y, yOf(res, 'g1', 'gamma'));
+  assert.equal(tgt.dir, -1, 'the source copy is above the target row');
   assert.equal(res.links.length, 0);
 });
 
@@ -193,4 +195,47 @@ test('a link with an end that is not drawn has neither line nor stub; the type a
   p.links[1].type = 'wake'; p.links[1].heartbeat = true;
   assert.equal(applyFilters(p, { ...defaultFilters(p), heartbeat: false }).stubs.length, 0);
   assert.equal(applyFilters(p, defaultFilters(p)).stubs.length, 2);
+});
+
+const treesPayload = (trees, sessions, links) => ({
+  now: 10_000, window: { from: 0, to: 10_000 }, linkTypes: ['send_prompt'], conductorProject: '.conduct', trees, sessions, links,
+});
+const W = (id, depth) => ({ id, depth, role: 'worker' });
+const R = (id) => ({ id, depth: 0, role: 'conductor' });
+
+test('a stub sits on the end’s own row even when a copy of it lies above', () => {
+  // x is home in beta and a dimmed copy in alpha (parent of y); alpha sorts above beta
+  const p = treesPayload(
+    [{ rootId: 'ra', rows: [R('ra'), W('x', 1), W('y', 2)] }, { rootId: 'rb', rows: [R('rb'), W('g', 1)] }],
+    { ra: S('ra', 0, 9000), x: S('x', 0, 9000, { project: 'beta' }), y: S('y', 0, 9000, { project: 'alpha' }), rb: S('rb', 0, 9000), g: S('g', 0, 9000, { project: 'gamma' }) },
+    [{ ts: 1000, type: 'send_prompt', from: 'x', to: 'g' }],
+  );
+  const res = applyFilters(p, defaultFilters(p));
+  assert.equal(res.stubs.find((s) => s.end === 'source').y, yOf(res, 'x', 'beta'));
+  assert.ok(yOf(res, 'x', 'alpha') < yOf(res, 'x', 'beta'));
+});
+
+test('when two bands hold both ends equally, the line goes in the first band in row order', () => {
+  const p = treesPayload(
+    [{ rootId: 'ra', rows: [R('ra'), W('x', 1), W('y', 2)] }, { rootId: 'rb', rows: [R('rb'), W('p', 1), W('q', 2)] }],
+    { ra: S('ra', 0, 9000), x: S('x', 0, 9000, { project: 'beta' }), y: S('y', 0, 9000, { project: 'alpha' }),
+      rb: S('rb', 0, 9000), p: S('p', 0, 9000, { project: 'alpha' }), q: S('q', 0, 9000, { project: 'beta' }) },
+    [{ ts: 1000, type: 'send_prompt', from: 'x', to: 'p' }],
+  );
+  const res = applyFilters(p, defaultFilters(p));
+  assert.equal(res.links.length, 1);
+  assert.equal(res.links[0].y1, yOf(res, 'x', 'alpha'));
+  assert.equal(res.links[0].y2, yOf(res, 'p', 'alpha'));
+});
+
+test('an open-ended session (end null) started before the range keeps its band, row and links', () => {
+  const p = treesPayload(
+    [{ rootId: 'r', rows: [R('r'), W('x', 1)] }],
+    { r: S('r', 0, 9000), x: { id: 'x', project: 'alpha', start: 100, end: null } },
+    [{ ts: 6000, type: 'send_prompt', from: 'r', to: 'x' }],
+  );
+  const res = applyFilters(p, { ...defaultFilters(p), from: 5000, to: 7000 });
+  assert.deepEqual(res.rows.filter((r) => r.kind === 'band').map((r) => r.project), ['alpha']);
+  assert.deepEqual(ids(res), ['r', 'x']);
+  assert.equal(res.links.length, 1);
 });

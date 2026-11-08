@@ -44,15 +44,12 @@ function entriesOf(tree, base, sessions, sel) {
   const entries = [];
   const units = new Map(); // `${ownerIdx}\0${project}` → entry
   const keptIn = new Map(); // entry → Set of row indices
+  const leads = new Map(); // index → lead row
   const stack = []; // indices of the current ancestor chain
   rows.forEach((row, i) => {
     stack.length = row.depth;
     stack.push(i);
-    if (row.role === 'lead') {
-      const project = sessions[row.id].project;
-      if (wants(sel.projects, project) && overlaps(row.id)) entries.push({ project, chain: [0, i], unit: [] });
-      return;
-    }
+    if (row.role === 'lead') { leads.set(i, row); return; }
     const project = sessions[row.id].project;
     if (row.role !== 'worker' || !project || !wants(sel.projects, project) || !overlaps(row.id)) return;
     const owner = rows[stack[1]]?.role === 'lead' ? stack[1] : 0;
@@ -68,6 +65,12 @@ function entriesOf(tree, base, sessions, sel) {
     // ancestors strictly below the owner; stop at one already kept: amortised O(n)
     for (let d = row.depth; d > rows[owner].depth && !kept.has(stack[d]); d--) kept.add(stack[d]);
   });
+  // A lead keeps its own-project entry while it overlaps or has a kept worker below it.
+  const driven = new Set([...keptIn.keys()].map((e) => e.chain[1]).filter((i) => i !== undefined));
+  for (const [i, row] of leads) {
+    const project = sessions[row.id].project;
+    if (wants(sel.projects, project) && (overlaps(row.id) || driven.has(i))) entries.push({ project, chain: [0, i], unit: [] });
+  }
   for (const [entry, kept] of keptIn) {
     entry.unit = [...kept].sort((a, b) => a - b).map((i) => ({ i, id: rows[i].id, depth: rows[i].depth, order: base + i }));
   }

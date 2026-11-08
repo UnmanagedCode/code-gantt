@@ -1235,3 +1235,12 @@ test('a link between rows of different groups renders a stub with a ring at each
   setChecked($(root, 'input[name="link:forward"]'), false);
   assert.equal(root.querySelectorAll('.link-stub').length, 0);
 });
+
+test('forward stubs are painted beneath the other links', async () => {
+  const { root, app } = boot(leadsPayload());
+  await app.load();
+  const gs = [...root.querySelectorAll('.links > .link-g')];
+  const firstOther = gs.findIndex((g) => g.getAttribute('data-type') !== 'forward');
+  const lastForward = gs.map((g) => g.getAttribute('data-type')).lastIndexOf('forward');
+  assert.ok(lastForward >= 0 && firstOther >= 0 && lastForward < firstOther);
+});
