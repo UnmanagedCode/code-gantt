@@ -46,6 +46,8 @@ export function buildFixture(now = Date.now()) {
     evSession(t(24), SYSTEM, 'a0000002', 'exit', { cause: 'exited' }),
     evSession(t(23.9), SYSTEM, 'a0000002', 'resume', { cause: 'renew' }),
     evCall(t(22.5), C, 'a0000002', 'send_prompt', { forward: 'a0000004' }),
+    // same-side pair: the conductor and the forward source (a4) both lie above the target (a5) in beta
+    evCall(t(9.6), C, 'a0000005', 'send_prompt', { forward: 'a0000004' }),
     evTurn(t(22), C, 'a0000002', 'start'), evTurn(t(21.7), SYSTEM, 'a0000002', 'end'),
     evCall(t(21), C, 'a0000002', 'approve_plan', { move: { from: 'review', to: 'done' } }),
     evTurn(t(18), HUMAN, C, 'start'), evTurn(t(17.6), SYSTEM, C, 'end'),

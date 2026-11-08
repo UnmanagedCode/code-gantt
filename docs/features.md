@@ -27,13 +27,13 @@ Bar content:
 
 ## Links
 
-Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
+Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. The tooltip of either line of a forwarded prompt names sender → target and `forwarding <source>`. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
 
 | Type | Direction |
 |---|---|
 | `spawn` | parent → child, at the child's start |
 | governed tools (`send_prompt`, `approve_plan`, `reject_plan`, `answer_question`, `interrupt_turn`, `kill_instance`, `set_mode`, `set_idle_timeout`, `renew_session`, `prune_session`) | conductor → worker |
-| `forward` | forward source → target (a prompt that forwards another session's output) |
+| `forward` | forward source → target, drawn alongside the `send_prompt` it belongs to (a prompt that forwards another session's output): dotted and shifted right by a constant pixel offset (`PAIR_OFFSET_PX`) |
 | `wake` | worker → conductor; heartbeat wakes (a worker that did not finish) are dotted |
 | `other` | conductor → worker, for a `call` row whose tool is not in the governed set; counted in the footer |
 
@@ -45,7 +45,7 @@ Vertical connector at the event time from source row to target row, ending in a 
 - **Selection semantics:** *All* means every project/conductor, including ones that appear after load (range change, live data). An explicit subset keeps new items hidden, and its button reads `n of m` even when the subset happens to cover every current item (only the real All reads `All`). An empty Conductors or Projects selection draws no rows; the chart hint names which filter is empty. Filter state is in memory only; a page reload resets it.
 - **Crosshair:** hovering the time scale's plot area shows a vertical line through the scale and the visible rows, and a readout `MM-DD HH:MM` in local time, with `:SS` when one pixel spans at most `READOUT_SECONDS_MS_PER_PX` (`public/lib/scale.js`). It follows the pointer during a drag-to-zoom (clamped to the plot) and stays at the pointer across reloads and wheel zoom. It hides when the pointer leaves the scale or is over the label column, after a press ends or is cancelled until the next move.
 - **Link groups:** the Links popover groups types by kind (`LINK_GROUPS` in `public/lib/linkGroups.js`): Lifecycle, Driving, Plans, Wakes, Config, Other. A type missing from the table goes to Other. Each group has a tri-state checkbox and a disclose button (collapsed by default; while a search is active matching groups are expanded and the disclose buttons are disabled). `wake heartbeat` is an item of Wakes, independent of `wake`.
-- **Legend:** a row of buttons under the toolbar, one per link type in the popover's order; click toggles the type (muted + struck through when hidden). It shares state with the Links popover.
+- **Legend:** a row of buttons under the toolbar, one per link type in the popover's order (the `forward` and `wake heartbeat` swatches are dotted, like their lines); click toggles the type (muted + struck through when hidden). It shares state with the Links popover.
 - **Keyboard:** ArrowDown on a menu button opens it; ArrowDown/ArrowUp move between row checkboxes (and the search box); ArrowRight/ArrowLeft expand/collapse a group; Space toggles; Esc closes and refocuses the button.
 - **Layout:** the page never scrolls. A tall chart scrolls its rows inside the chart box while the toolbar, legend, time scale and footer stay visible; the details panel scrolls on its own when long. The scroll position is kept across live reloads, resizes, zoom and filter changes.
 - **Zoom/pan:** Ctrl/⌘+wheel (or trackpad pinch) over the rows zooms around the cursor, and a plain wheel over the time scale zooms; a plain wheel over the rows scrolls them, so Ctrl+wheel over the chart no longer zooms the browser page; **drag across the time scale to zoom to that interval** (a band shows the selection; a click or a drag under `BRUSH_MIN_PX` in `public/lib/scale.js` does nothing; Esc or a pointer cancel aborts); drag on the rows pans. All are clamped to the loaded window. The Range select keeps showing the loaded range; *Reset zoom* or choosing a range restores the full window.

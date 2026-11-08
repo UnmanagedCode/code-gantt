@@ -22,13 +22,14 @@ All URLs are relative to the plugin root (cc proxies it under a path prefix). Ev
                     start, end|null, endKind:'exited'|'killed'|'live'|'approx', endReason?,
                     turns:[[s,e]…], turnCount, rotations:[{at,reason}],
                     stages:[{stage,from,to|null,via?}], marks:[{at,kind:'exit'|'resume'}] } },
-  links:[{ ts, type, from, to, heartbeat? }],
+  links:[{ ts, type, from, to, heartbeat?, pair? }],
   diagnostics:{ liveness:'ok'|'unavailable',
                 horizon:iso|null, unresolved, unmatchedStoreRows:{events}, unknownTools:{tool:n}, unknownKinds:{kind:n},
                 otherVersionRows, corruptLines, treeLoops, missing:[file], errors:[string] } }
 ```
 
 - `unresolved` counts link endpoints that match no session; `unmatchedStoreRows` counts event-log rows whose session is not in `sessions.json`.
+- `pair:{sender,source}` is on both links of a forwarded call (the tool link, e.g. `send_prompt`, and its `forward` link). The window filter can drop one of them, and `source` may name a session absent from `sessions`.
 - `horizon` is `EventLogReader.horizonTs` as ISO (rule below), or `null`; with `null` the payload has no projects, sessions or links.
 - `window.from` is the requested `from` raised to the horizon. When the requested `to` is before the horizon (or there is no horizon) the payload has no projects, sessions or links and `window` is the requested one; `diagnostics.horizon` is still set when the log has one. For a request with `from <= to` the reported `window.from <= window.to` and no turn is inverted; a caller-supplied `from > to` is not validated and is echoed as given.
 - `otherVersionRows` counts event-log rows whose `v` is not the one this plugin reads; they are skipped.

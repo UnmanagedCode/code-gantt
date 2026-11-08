@@ -11,6 +11,8 @@ export const AXIS_H = 30;
 const PAD_R = 14;
 const STAGE_COLORS = 8;
 const APPROX_TAIL_PX = 26;
+/** A forward line is drawn this many pixels right of its send_prompt partner (about one `.link` stroke width); pixels, so zoom does not change it. */
+export const PAIR_OFFSET_PX = 2;
 // Drag state outlives a render: panning re-renders the svg on every move.
 let dragX = null;
 
@@ -23,13 +25,10 @@ function stageIndex(stage) {
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s);
 
 function linkLines(l, payload) {
-  const a = payload.sessions[l.from];
-  const b = payload.sessions[l.to];
-  return [
-    `${l.type}${l.heartbeat ? ' (heartbeat)' : ''}`,
-    `${labelOf(a)} → ${labelOf(b)}`,
-    fmtTime(l.ts),
-  ];
+  const name = (id) => labelOf(payload.sessions[id] ?? { id });
+  const head = `${l.type}${l.heartbeat ? ' (heartbeat)' : ''}`;
+  if (l.pair) return [head, `${name(l.pair.sender)} → ${name(l.to)}`, `forwarding ${name(l.pair.source)}`, fmtTime(l.ts)];
+  return [head, `${name(l.from)} → ${name(l.to)}`, fmtTime(l.ts)];
 }
 
 function barLines(s) {
@@ -150,7 +149,7 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
   // Only the dot takes pointer events, so a connector never blocks clicks on the bars it crosses.
   const linkLayer = svgEl('g', { class: 'links' });
   for (const l of layout.links) {
-    const x = X(l.ts);
+    const x = X(l.ts) + (l.type === 'forward' ? PAIR_OFFSET_PX : 0);
     const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type });
     lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
     lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: l.y2, r: 3.5 }));
@@ -158,7 +157,9 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
     const at = (e) => { const b = overlay.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
     listen(lg, 'mousemove', (e) => onHover(linkLines(l, payload), ...at(e)));
     listen(lg, 'mouseleave', () => onLeave());
-    linkLayer.appendChild(lg);
+    // forward is painted beneath its send_prompt partner, which keeps its end dot whole
+    if (l.type === 'forward') linkLayer.prepend(lg);
+    else linkLayer.appendChild(lg);
   }
   plot.appendChild(linkLayer);
 

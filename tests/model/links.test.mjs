@@ -34,9 +34,19 @@ test('an attributed ok call draws caller → subject typed by its tool', () => {
   assert.deepEqual(r.links.filter((l) => l.type !== 'spawn').map((l) => [l.type, l.from, l.to]), [['approve_plan', 'cond', 'wrk1']]);
 });
 
-test('a call with forward draws a forward link from the forward id', () => {
+test('a call with forward draws its send_prompt and a forward link at the same ts, marked as a pair', () => {
   const r = run({ events: [lev({ forward: 'wrk2' })] });
-  assert.deepEqual(r.links.filter((l) => l.type !== 'spawn').map((l) => [l.type, l.from, l.to]), [['forward', 'wrk2', 'wrk1']]);
+  const pair = { sender: 'cond', source: 'wrk2' };
+  assert.deepEqual(r.links.filter((l) => l.type !== 'spawn').map((l) => [l.type, l.from, l.to, l.ts, l.pair]),
+    [['send_prompt', 'cond', 'wrk1', T0 + min(10), pair], ['forward', 'wrk2', 'wrk1', T0 + min(10), pair]]);
+});
+
+test('an unresolvable forward source keeps the send_prompt link, unpaired, and counts the id as unresolved', () => {
+  const r = run({ events: [lev({ forward: 'ghost0000' })] });
+  const links = r.links.filter((l) => l.type !== 'spawn');
+  assert.deepEqual(links.map((l) => [l.type, l.from, l.to]), [['send_prompt', 'cond', 'wrk1']]);
+  assert.equal('pair' in links[0], false);
+  assert.equal(r.unresolved, 1);
 });
 
 test('refused and failed calls draw no link', () => {
@@ -62,9 +72,10 @@ test('a wake row draws worker → recipient and keeps heartbeat', () => {
   assert.deepEqual(r.links.filter((l) => l.type === 'wake').map((l) => [l.from, l.to, l.heartbeat ?? false]), [['wrk1', 'cond', true], ['wrk2', 'cond', false]]);
 });
 
-test('a link carries only ts, type and endpoints (plus heartbeat on wakes): no source', () => {
-  const r = run({ events: [lev(), wk(T0 + min(40), 'wrk1', 'cond', { heartbeat: true })] });
-  for (const l of r.links) assert.deepEqual(Object.keys(l).filter((k) => !['ts', 'type', 'from', 'to', 'heartbeat'].includes(k)), []);
+test('a link carries only ts, type and endpoints (plus heartbeat on wakes, pair on a forwarded call): no source', () => {
+  const r = run({ events: [lev(), lev({ forward: 'wrk2', ts: T0 + min(11) }), wk(T0 + min(40), 'wrk1', 'cond', { heartbeat: true })] });
+  for (const l of r.links) assert.deepEqual(Object.keys(l).filter((k) => !['ts', 'type', 'from', 'to', 'heartbeat', 'pair'].includes(k)), []);
+  assert.deepEqual(r.links.filter((l) => 'pair' in l).map((l) => [l.type, l.ts]), [['send_prompt', T0 + min(11)], ['forward', T0 + min(11)]]);
 });
 
 test('an unresolvable id drops the link and increments unresolved, once per unplaceable id', () => {

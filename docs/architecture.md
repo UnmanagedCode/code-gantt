@@ -52,7 +52,7 @@ Defined in `buildBar`: killed/exited → live → approx. The ending row is the 
 ### Link derivation (`buildLinks`)
 
 - Spawn links come from `sessions.json` `parent`, at the child's start; `spawn_instance` `call` rows draw nothing.
-- A `call` row draws caller (`actor.sessionId`) → `subject` typed by tool only when `outcome` is `ok` and the row names its caller; an unattributed (migrated) row draws nothing and counts nothing. With `forward` the type is `forward` and the source is that session. Tools outside `GOVERNED_TOOLS` become `other` and are counted in `unknownTools`.
+- A `call` row draws caller (`actor.sessionId`) → `subject` typed by tool only when `outcome` is `ok` and the row names its caller; an unattributed (migrated) row draws nothing and counts nothing. With `forward` it also draws a `forward` link (forward source → subject) at the same `ts`; both links carry `pair: { sender, source }`. An unresolvable forward source leaves the tool link unpaired and counts the id in `unresolved`. Tools outside `GOVERNED_TOOLS` become `other` and are counted in `unknownTools`.
 - A `wake` row draws `subject` (worker) → `recipient`.
 
 ### Id resolution
@@ -122,7 +122,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 ## Frontend chart frame
 
-`createChart(host)` in `public/render/chart.js` builds the frame once inside `.chart-host`; `render` rebuilds only the svgs.
+`createChart(host)` in `public/render/chart.js` builds the frame once inside `.chart-host`; `render` rebuilds only the svgs. A `forward` link is drawn `PAIR_OFFSET_PX` (pixels, so zoom-independent) right of its send_prompt partner, with its own end dot and hit circle, and painted beneath the other links so the send_prompt dot stays whole.
 
 | Element | Lifetime | Holds |
 |---|---|---|

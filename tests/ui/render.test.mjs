@@ -9,7 +9,7 @@ globalThis.window = win;
 
 const { el, svgEl } = await import('../../public/lib/dom.js');
 const { mount } = await import('../../public/app.js');
-const { LABEL_W } = await import('../../public/render/chart.js');
+const { LABEL_W, PAIR_OFFSET_PX } = await import('../../public/render/chart.js');
 const { brushView, timeScale, readout } = await import('../../public/lib/scale.js');
 
 const EVIL = '<img src=x onerror=alert(1)>';
@@ -63,6 +63,8 @@ test('XSS: hostile id, title, project, worktree, model, stage, via and tool rend
     stages: [{ stage: EVIL, from: 1000, to: 9000, via: EVIL2 }] };
   p.linkTypes.push(EVIL);
   p.links.push({ ts: 7000, type: EVIL, from: 'root', to: 'w1' });
+  const evilPair = { sender: 'root', source: EVIL };
+  p.links.push({ ts: 7200, type: 'send_prompt', from: 'root', to: 'w2', pair: evilPair }, { ts: 7200, type: 'forward', from: EVIL, to: 'w2', pair: evilPair });
   const { root, app } = boot(p);
   await app.load();
   click(root.querySelector('[data-id="w1"]'));
@@ -73,6 +75,8 @@ test('XSS: hostile id, title, project, worktree, model, stage, via and tool rend
   assert.ok(root.querySelector('#details').textContent.includes(EVIL));
   const g = root.querySelector('.link-g');
   g.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
+  root.querySelector('.link-g[data-type="forward"]').dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
+  assert.ok(root.querySelector('g.tooltip').textContent.includes(`forwarding ${EVIL}`));
   for (const bad of ['img', 'script']) assert.equal(document.querySelectorAll(bad).length, 0, bad);
   assert.equal(document.querySelectorAll('[onerror],[onclick]').length, 0);
   assert.ok(w1Details.includes(EVIL));
@@ -427,6 +431,7 @@ test('legend focus stays on the clicked button; heartbeat follows wake with a do
   const keys = [...root.querySelectorAll('.legend-item')].map((n) => n.getAttribute('data-key'));
   assert.equal(keys[keys.indexOf('wake') + 1], 'heartbeat');
   assert.equal($(root, '.legend-item[data-key="heartbeat"] .swatch').classList.contains('dotted'), true);
+  assert.equal($(root, '.legend-item[data-key="forward"] .swatch').classList.contains('dotted'), true);
   const b = $(root, '.legend-item[data-key="wake"]');
   b.focus();
   click(b);
@@ -1105,4 +1110,71 @@ test('the crosshair sits in the overlay regardless of the rows scroll offset', a
   assert.equal(cross(root).parentElement, sq(root, '.chart-overlay'));
   assert.equal(sq(root, '.chart-scroll g.crosshair'), null);
   assert.equal(cross(root).querySelector('line').getAttribute('y1'), '0');
+});
+
+// ---- a forwarded send_prompt: a send_prompt link plus a forward link sharing one `pair`
+const pairPayload = (source = 'w2') => {
+  const pair = { sender: 'root', source };
+  const p = payload();
+  p.links.push({ ts: 4000, type: 'send_prompt', from: 'root', to: 'w1', pair }, { ts: 4000, type: 'forward', from: source, to: 'w1', pair });
+  return p;
+};
+const pairLine = (root, type) => sq(root, `.link-g[data-type="${type}"]`);
+const num = (node, a) => Number(node.getAttribute(a));
+const hoverNode = (node) => node.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 50 }));
+
+test('a forward line sits PAIR_OFFSET_PX right of its send_prompt at every zoom; the send_prompt marks the event time; dot and hit target follow the forward', async () => {
+  const { root, app } = boot(pairPayload());
+  await app.load();
+  const xs = () => {
+    const sp = pairLine(root, 'send_prompt');
+    const fw = pairLine(root, 'forward');
+    const f = sq(fw, '.link');
+    return { expected: LABEL_W + scaleOf(app).x(4000), sp: num(sq(sp, '.link'), 'x1'), fw: num(f, 'x1'), fw2: num(f, 'x2'), dot: num(sq(fw, '.link-end'), 'cx'), hit: num(sq(fw, '.link-hit'), 'cx') };
+  };
+  const before = xs();
+  wheelAt(sq(root, 'svg.chart'), LABEL_W + 100, { ctrlKey: true });
+  const after = xs();
+  assert.notEqual(after.sp, before.sp, 'the zoom moved the lines');
+  for (const x of [before, after]) {
+    assert.equal(x.fw - x.sp, PAIR_OFFSET_PX);
+    assert.equal(x.fw2, x.fw, 'the forward line is vertical');
+    assert.equal(x.dot, x.fw);
+    assert.equal(x.hit, x.fw);
+    assert.ok(Math.abs(x.sp - x.expected) < 1e-6, 'the send_prompt sits exactly at the event time');
+  }
+});
+
+test('hovering either line of a forward pair names sender → target and the forwarded session', async () => {
+  const { root, app } = boot(pairPayload());
+  await app.load();
+  for (const type of ['send_prompt', 'forward']) {
+    const g = pairLine(root, type);
+    g.dispatchEvent(new win.MouseEvent('mouseleave', { bubbles: true }));
+    assert.equal(sq(root, 'g.tooltip'), null, 'tooltip cleared before hovering');
+    hoverNode(g);
+    const tip = sq(root, 'g.tooltip');
+    const lines = [...tip.querySelectorAll('text')].map((n) => n.textContent);
+    assert.equal(lines[0], type);
+    assert.equal(lines[1], 'Conductor → Worker one');
+    assert.equal(lines[2], 'forwarding Worker two');
+  }
+});
+
+test('a pair whose source session is not in the payload shows the raw id in the tooltip', async () => {
+  const { root, app } = boot(pairPayload('gone0000'));
+  await app.load();
+  hoverNode(pairLine(root, 'send_prompt'));
+  assert.ok(sq(root, 'g.tooltip').textContent.includes('forwarding gone0000'));
+});
+
+test('send_prompt and forward toggles hide only their own line', async () => {
+  const { root, app } = boot(pairPayload());
+  await app.load();
+  const count = (t) => root.querySelectorAll(`.link-g[data-type="${t}"]`).length;
+  setChecked($(root, 'input[name="link:forward"]'), false);
+  assert.deepEqual([count('send_prompt'), count('forward')], [1, 0]);
+  setChecked($(root, 'input[name="link:forward"]'), true);
+  setChecked($(root, 'input[name="link:send_prompt"]'), false);
+  assert.deepEqual([count('send_prompt'), count('forward')], [0, 1]);
 });
