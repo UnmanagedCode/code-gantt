@@ -152,14 +152,16 @@ try {
       return label?.classList.contains('context') && label.classList.contains('head');
     });
     assert.ok(rootRowCtx, 'the conductor header in Conductor is a dimmed copy, never home');
-    const inConductor = await page.evaluate(() => {
-      const g = document.querySelector('.link-g[data-type="send_prompt"][data-from="c0000004"][data-to="5ec00001"]:not(.link-stub)');
-      if (!g) return false;
+    const bandsOf = (from, to) => page.evaluate(([f, t]) => {
       const bands = [...document.querySelectorAll('.project-label')].map((n) => ({ name: n.textContent, y: n.getBoundingClientRect().y }));
-      const y = g.querySelector('.link-end').getBoundingClientRect().y;
-      return y > bands.find((b) => b.name === 'Conductor').y && y < bands.find((b) => b.name === 'alpha').y;
-    });
-    assert.ok(inConductor, 'conductor → lead is drawn inside the Conductor band');
+      return [...document.querySelectorAll(`.link-g[data-type="send_prompt"][data-from="${f}"][data-to="${t}"]:not(.link-stub)`)].map((g) => {
+        const y = g.querySelector('.link-end').getBoundingClientRect().y;
+        return bands.filter((b) => b.y < y).at(-1)?.name;
+      });
+    }, [from, to]);
+    assert.deepEqual(await bandsOf('c0000004', '5ec00001'), ['Conductor', 'alpha', 'beta'], 'root → lead is drawn in Conductor and in each project band the lead drives');
+    assert.deepEqual(await bandsOf('c0000004', '5ec00002'), ['Conductor'], 'a lead with no project rows is linked in Conductor only');
+    assert.equal(await page.locator('.link-stub[data-from="c0000004"][data-to="5ec00002"]').count(), 0, '…and has no stub');
     const stubSel = '.link-g.link-stub[data-type="forward"][data-from="e0000003"][data-to="5ec00002"]';
     assert.equal(await page.locator(stubSel).count(), 2, 'a forward whose ends share no group is two stubs');
     assert.equal(await page.locator('.link-g[data-type="forward"][data-from="e0000003"]:not(.link-stub)').count(), 0, '…and no line');

@@ -239,3 +239,81 @@ test('an open-ended session (end null) started before the range keeps its band, 
   assert.deepEqual(ids(res), ['r', 'x']);
   assert.equal(res.links.length, 1);
 });
+
+// ---- root ↔ own section-lead links are repeated in each project band holding both context copies ----
+const linesFor = (res, from, to) => res.links.filter((l) => l.from === from && l.to === to);
+const yBand = (res, group) => res.rows.filter((r) => r.kind === 'row' && r.group === group).map((r) => r.y + ROW_H / 2);
+const leadLinks = (links) => {
+  const p = leadPayload();
+  p.trees[0].rows = [
+    { id: 'c', depth: 0, role: 'conductor' },
+    { id: 'l1', depth: 1, role: 'lead' }, { id: 'w1', depth: 2, role: 'worker' },
+    { id: 'l2', depth: 1, role: 'lead' }, { id: 'w2', depth: 2, role: 'worker' },
+    { id: 'd1', depth: 1, role: 'worker' },
+  ];
+  p.sessions.w2 = S('w2', 250, 900, { project: 'beta' });
+  p.links = links;
+  return p;
+};
+
+test('a root ↔ section-lead link is also drawn in the lead’s project band, between the two context copies', () => {
+  const p = leadLinks([{ ts: 1000, type: 'send_prompt', from: 'c', to: 'l1' }]);
+  const res = applyFilters(p, defaultFilters(p));
+  const ls = linesFor(res, 'c', 'l1');
+  assert.equal(ls.length, 2);
+  assert.equal(new Set(ls.map((l) => l.key)).size, 2);
+  assert.ok(ls.some((l) => l.y1 === yOf(res, 'c', '.conduct') && l.y2 === yOf(res, 'l1', '.conduct')));
+  assert.ok(ls.some((l) => l.y1 === yOf(res, 'c', 'alpha') && l.y2 === yOf(res, 'l1', 'alpha')));
+});
+
+test('a root ↔ lead link is not drawn in another project’s band and makes no stub', () => {
+  const p = leadLinks([{ ts: 1000, type: 'send_prompt', from: 'c', to: 'l2' }]);
+  const res = applyFilters(p, defaultFilters(p));
+  const ls = linesFor(res, 'c', 'l2');
+  assert.equal(ls.length, 2);
+  const alpha = yBand(res, 'alpha');
+  assert.ok(ls.every((l) => !alpha.includes(l.y1) && !alpha.includes(l.y2)));
+  assert.ok(ls.some((l) => l.y2 === yOf(res, 'l2', 'beta')));
+  assert.equal(res.stubs.length, 0);
+});
+
+test('the lead → root direction is drawn per band too', () => {
+  const p = leadLinks([{ ts: 1000, type: 'wake', from: 'l1', to: 'c' }]);
+  const res = applyFilters(p, defaultFilters(p));
+  const ls = linesFor(res, 'l1', 'c');
+  assert.equal(ls.length, 2);
+  assert.ok(ls.some((l) => l.y1 === yOf(res, 'l1', 'alpha') && l.y2 === yOf(res, 'c', 'alpha')));
+});
+
+test('a lead driving two projects gets the root link in each band; with Conductor deselected, once per project band', () => {
+  const p = leadLinks([{ ts: 1000, type: 'send_prompt', from: 'c', to: 'l1' }]);
+  p.trees[0].rows.splice(3, 0, { id: 'wb', depth: 2, role: 'worker' });
+  p.sessions.wb = S('wb', 250, 900, { project: 'beta' });
+  const res = applyFilters(p, defaultFilters(p));
+  const ls = linesFor(res, 'c', 'l1');
+  assert.equal(ls.length, 3);
+  assert.ok(ls.some((l) => l.y2 === yOf(res, 'l1', 'beta')));
+  const f = { ...defaultFilters(p), projects: new Set(['alpha', 'beta']) };
+  const r2 = applyFilters(p, f);
+  assert.deepEqual([linesFor(r2, 'c', 'l1').length, r2.stubs.length], [2, 0]);
+});
+
+test('a root’s direct-worker link is not duplicated, and shares the band’s single root copy with its lead link', () => {
+  const p = leadLinks([{ ts: 1000, type: 'send_prompt', from: 'c', to: 'd1' }, { ts: 1100, type: 'send_prompt', from: 'c', to: 'l1' }]);
+  const res = applyFilters(p, defaultFilters(p));
+  assert.equal(linesFor(res, 'c', 'd1').length, 1);
+  const cAlpha = yOf(res, 'c', 'alpha');
+  assert.equal(linesFor(res, 'c', 'd1')[0].y1, cAlpha);
+  assert.ok(linesFor(res, 'c', 'l1').some((l) => l.y1 === cAlpha && l.y2 === yOf(res, 'l1', 'alpha')));
+});
+
+test('links between context copies that are not root ↔ own lead stay in one band', () => {
+  const p = treesPayload(
+    [{ rootId: 'c', rows: [R('c'), { id: 'l1', depth: 1, role: 'lead' }, W('w1', 2)] }, { rootId: 'c2', rows: [R('c2'), { id: 'l2', depth: 1, role: 'lead' }, W('w2', 2)] }],
+    { c: S('c', 0, 9000), l1: S('l1', 0, 9000, { project: '.conduct' }), w1: S('w1', 0, 9000, { project: 'alpha' }),
+      c2: S('c2', 0, 9000), l2: S('l2', 0, 9000, { project: '.conduct' }), w2: S('w2', 0, 9000, { project: 'alpha' }) },
+    [{ ts: 1000, type: 'send_prompt', from: 'c', to: 'c2' }, { ts: 1100, type: 'send_prompt', from: 'l1', to: 'l2' }, { ts: 1200, type: 'send_prompt', from: 'c', to: 'l2' }],
+  );
+  const res = applyFilters(p, defaultFilters(p));
+  assert.deepEqual([linesFor(res, 'c', 'c2').length, linesFor(res, 'l1', 'l2').length, linesFor(res, 'c', 'l2').length], [1, 1, 1]);
+});

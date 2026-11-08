@@ -34,6 +34,7 @@ Bar content:
 Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. A link is drawn only inside one band:
 
 - **Which band:** among the bands holding rows for both ends, the one where most ends have their own (non-dimmed) row; ties go to the first band. In it each end uses its own row, else its first row.
+- **Exception — root ↔ its own section lead** (either direction): also drawn in every other band holding both, i.e. each project band the lead drives, between the dimmed root and lead copies. Never in a band the lead does not drive, and never stubbed.
 - **Stubs:** when both ends are drawn but no band holds both, no line is drawn. Each end gets a short stub at the event time (`STUB_PX` long, pointing toward the other end's row) ending in a hollow ring; the target end keeps its dot. The stub sits on the end's own row, else its topmost dimmed copy. Hover the ring: the usual tooltip plus `<other end> — in <band>, not drawn here`.
 - An end that is filtered out or outside the time range draws neither a line nor a stub. The type, heartbeat and legend filters hide stubs with their link.
 

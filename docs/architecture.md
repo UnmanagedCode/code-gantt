@@ -41,6 +41,7 @@
   - *Path:* an entry's path is `[project, ...owner chain]` (`LEVELS`); entries merge into a trie, emitted depth-first as bands, headers and rows.
   - *Filters* apply to entries before the trie: Conductors drops trees; Projects drops units and self-entries of unselected projects; the time range keeps rows that overlap or are ancestors of kept rows. A node exists only if a surviving entry passes through it.
   - *Row `context`:* a header is own (not context) only when its `project` is the band's and it is not the root.
+- A root ↔ own-section-lead link (`rootLead` in `applyFilters`) gets one extra line per other shared band, keyed `l:<i>:<group>`; the best-band line keeps `l:<i>`.
 - Links and stubs are placed in `applyFilters` (`public/lib/layout.js`); `layout.stubs` carries `{...link, end, y, dir, otherId, otherGroup}` per stub end.
 
 ### Bar end precedence

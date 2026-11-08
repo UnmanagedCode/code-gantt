@@ -1208,6 +1208,9 @@ test('the conductor project renders as a Conductor band holding the conductor an
     ['Boss', true, true], ['Lead one', true, true], ['w1', false, false], ['Direct', false, false],
   ]);
   assert.ok(root.querySelector('.link-g[data-type="send_prompt"][data-from="c"][data-to="l1"]'), 'conductor → lead is drawn');
+  const sel = '.link-g[data-type="send_prompt"][data-from="c"][data-to="l1"]';
+  assert.equal(root.querySelectorAll(`${sel}:not(.link-stub)`).length, 2, 'the root → lead link is also drawn in the lead’s project band, as a normal line');
+  assert.equal(root.querySelectorAll('.link-stub[data-from="c"]').length, 0);
 });
 
 test('a link between rows of different groups renders a stub with a ring at each end and no line; hovering names the other end and its group', async () => {
