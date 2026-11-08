@@ -26,7 +26,6 @@ export function createCrosshair({ host, layer, left, bandH }) {
     const w = label.length * CHAR_W + 2 * PAD_X;
     let rx = x + GAP;
     if (rx + w > width) rx = x - GAP - w;
-    rx = Math.max(0, rx);
     const y = (bandH - PILL_H) / 2;
     layer.appendChild(svgEl('g', { class: 'crosshair', 'aria-hidden': 'true' },
       svgEl('line', { class: 'crosshair-line', x1: x, x2: x, y1: 0, y2: '100%' }),
@@ -39,6 +38,7 @@ export function createCrosshair({ host, layer, left, bandH }) {
   listen(host, 'pointermove', (e) => { clientX = view && e.target === view.hit ? e.clientX : null; draw(); });
   listen(host, 'pointerleave', hide);
   listen(host, 'pointerup', hide, true);
+  listen(host, 'pointercancel', hide);
 
   return { update: (v) => { view = v; draw(); } };
 }

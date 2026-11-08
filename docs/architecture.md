@@ -106,7 +106,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 ## Tests
 
-`npm test` runs `node --test` over `tests/**/*.test.mjs`, clearing the cc env vars first.
+`npm test` runs `node --test` over `tests/**/*.test.mjs`, clearing the cc env vars first and pinning `TZ=Asia/Kolkata` (a non-UTC zone, so tests of local-time formatting such as tick labels and the crosshair readout distinguish `getHours` from `getUTCHours`).
 
 - **Fixture store:** `tests/helpers/store.mjs` `makeStore` builds a fresh temp store; config is injected. `horizonRows(ts, worker, conductor)` emits the wake and turn rows that open the horizon. Its `evCall`/`evSession`/`evTurn`/`evWake`/`evConfig` builders emit rows shaped per cc `docs/event-log.md`.
 - **Sentinel:** `tests/helpers/sentinel.mjs` `PROMPT_SENTINEL` sits in unknown row fields; payload and DOM must not contain it.

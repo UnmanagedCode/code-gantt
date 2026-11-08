@@ -133,3 +133,14 @@ test('readout digits are the local date fields of the time', () => {
   assert.equal(readout(timeScale(t, t + 60_000, 836), t), '11-08 03:04:05');
   assert.equal(readout(timeScale(t, t + 86_400_000, 836), t), '11-08 03:04');
 });
+
+test('tick labels: daily steps show MM-DD, sub-day steps HH:MM except at local midnight which shows MM-DD', () => {
+  const labels = (from, to) => ticks(timeScale(from, to, 900)).map((t) => t.label);
+  const day = new Date(2026, 0, 5, 0, 0, 0).getTime();
+  const days = labels(day, day + 14 * 86_400_000);
+  assert.ok(days.length > 1 && days.every((l) => /^\d\d-\d\d$/.test(l)));
+  assert.equal(days[0], '01-05');
+  assert.deepEqual(labels(day, day + 86_400_000), ['01-05', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '01-06']);
+  const hour = new Date(2026, 0, 5, 13, 0, 0).getTime();
+  assert.deepEqual(labels(hour, hour + 3_600_000), ['13:00', '13:15', '13:30', '13:45', '14:00']);
+});
