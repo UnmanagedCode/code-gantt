@@ -5,8 +5,9 @@ import { brushSpan, brushView } from '../lib/scale.js';
  * Drag-to-zoom on the time scale. `hit` is the capture target; `plotX(e)` maps an event to plot pixels.
  * `onBrush(active)` brackets a gesture so the host can defer renders; `onView(scale)` receives the committed view.
  * `scale` and `bounds` are those the visible svg was drawn with.
+ * The band is drawn in `layer` (the chart overlay) and spans its full height: the time scale plus the visible rows.
  */
-export function attachBrush({ svg, hit, scale, bounds, plotX, left, height, onBrush, onView }) {
+export function attachBrush({ layer, hit, scale, bounds, plotX, left, onBrush, onView }) {
   let g = null;
 
   const draw = () => {
@@ -36,8 +37,8 @@ export function attachBrush({ svg, hit, scale, bounds, plotX, left, height, onBr
   listen(hit, 'pointerdown', (e) => {
     if (g || !e.isPrimary || e.button !== 0) return;
     const x = plotX(e);
-    const band = svgEl('rect', { class: 'brush-band', x: left, y: 0, width: 0, height });
-    svg.appendChild(band);
+    const band = svgEl('rect', { class: 'brush-band', x: left, y: 0, width: 0, height: '100%' });
+    layer.appendChild(band);
     g = { id: e.pointerId, x0: x, x1: x, band };
     hit.setPointerCapture?.(e.pointerId);
     listen(document, 'keydown', onKey);

@@ -26,7 +26,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; padding: 12px 16px; background: var(--background); color: var(--foreground); font: 13px/1.4 system-ui, sans-serif; }
+html, body { height: 100%; }
+body { margin: 0; padding: 12px 16px; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; background: var(--background); color: var(--foreground); font: 13px/1.4 system-ui, sans-serif; }
 h1 { font-size: 18px; margin: 0 0 8px; }
 h2 { font-size: 15px; margin: 0 0 8px; }
 h3 { font-size: 13px; margin: 12px 0 4px; }
@@ -58,9 +59,13 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .legend-item[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
 .swatch.dotted { border-top-style: dotted; }
 .empty-hint { padding: 24px; text-align: center; margin: 0; }
-.main { display: flex; gap: 12px; align-items: flex-start; }
-.chart-host { flex: 1 1 auto; min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
-#details { flex: 0 0 280px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--card); overflow-wrap: anywhere; }
+#app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.main { display: flex; gap: 12px; align-items: flex-start; flex: 1 1 auto; min-height: 0; }
+.chart-host { flex: 1 1 auto; min-width: 0; max-height: 100%; position: relative; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.chart-scale-box { flex: none; }
+.chart-scroll { flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; overflow-anchor: none; overscroll-behavior: contain; }
+.chart-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; font-size: 12px; }
+#details { flex: 0 0 280px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--card); overflow-wrap: anywhere;  max-height: 100%; overflow-y: auto; box-sizing: border-box; }
 #details dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
 #details dt { color: var(--muted-foreground); }
 #details dd { margin: 0; }
@@ -68,8 +73,8 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .hint { color: var(--muted-foreground); }
 .diagnostics { margin-top: 8px; color: var(--muted-foreground); font-size: 12px; }
 
-.chart { display: block; font-size: 12px; user-select: none; }
-.chart text { fill: var(--foreground); }
+.chart, .chart-scale { display: block; font-size: 12px; user-select: none; }
+.chart text, .chart-scale text, .chart-overlay text { fill: var(--foreground); }
 .axis text { fill: var(--muted-foreground); }
 .axis-bg { fill: var(--card); }
 .plot-bg { fill: transparent; cursor: grab; }

@@ -1,4 +1,4 @@
-import { svgEl, text, clear, listen } from '../lib/dom.js';
+import { el, svgEl, text, clear, listen } from '../lib/dom.js';
 import { ticks, zoomAt, pan } from '../lib/scale.js';
 import { ROW_H, HEADER_H } from '../lib/layout.js';
 import { fmtTime, fmtDuration, labelOf } from '../lib/format.js';
@@ -41,14 +41,33 @@ function barLines(s) {
 }
 
 /**
- * Renders the whole chart as one SVG (labels, axis, rows, bars, links) and wires hover, select, wheel-zoom, drag-pan and axis brush-zoom.
+ * Builds the persistent chart frame inside `host` and returns `{ overlay, width(), render(opts) }`.
+ * The frame is created once: a fixed time-scale box, a scroll container for the rows, and a pointer-transparent overlay on top.
+ * `render` rebuilds only the svgs inside it (scale svg, rows svg) and clears the overlay, so the scroller and its offset survive.
  * `scale` maps time → pixels of the plot area (width = svg width − label column).
+ * Wheel routing: over the time scale a plain wheel zooms; over the rows Ctrl/⌘+wheel (or pinch) zooms and a plain wheel scrolls.
+ * The overlay holds the brush band and the tooltip, in the chart box's viewport coordinates.
  */
-export function renderChart(host, { payload, layout, scale, width, selectedId, bounds, onSelect, onHover, onLeave, onView, onBrush }) {
-  clear(host);
-  const height = AXIS_H + layout.height + 8;
+export function createChart(host) {
+  const scaleBox = el('div', { class: 'chart-scale-box' });
+  const scroller = el('div', { class: 'chart-scroll' });
+  const overlay = svgEl('svg', { class: 'chart-overlay', 'aria-hidden': 'true' });
+  host.append(scaleBox, scroller, overlay);
+  return {
+    overlay,
+    width: () => scroller.clientWidth,
+    render: (opts) => renderFrame({ scaleBox, scroller, overlay }, opts),
+  };
+}
+
+function renderFrame({ scaleBox, scroller, overlay }, { payload, layout, scale, width, selectedId, bounds, emptyHint, onSelect, onHover, onLeave, onView, onBrush }) {
+  const top = scroller.scrollTop;
+  clear(overlay);
+  const height = layout.height + 8;
   const X = (t) => LABEL_W + scale.x(t);
   const svg = svgEl('svg', { class: 'chart', width, height, viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': 'Session timeline' });
+  const scaleSvg = svgEl('svg', { class: 'chart-scale', width, height: AXIS_H, viewBox: `0 0 ${width} ${AXIS_H}`, role: 'group', 'aria-label': 'Time scale' });
+  const plotXOf = (node) => (e) => e.clientX - node.getBoundingClientRect().left - LABEL_W;
   const plotW = width - LABEL_W - PAD_R;
 
   svg.appendChild(svgEl('defs', null,
@@ -57,7 +76,7 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     svgEl('clipPath', { id: 'plot-clip' }, svgEl('rect', { x: LABEL_W, y: 0, width: plotW + PAD_R, height })),
   ));
 
-  const body = svgEl('g', { transform: `translate(0 ${AXIS_H})` });
+  const body = svgEl('g');
   const plot = svgEl('g', { 'clip-path': 'url(#plot-clip)' });
   const labels = svgEl('g', { class: 'labels' });
   const axis = svgEl('g', { class: 'axis' });
@@ -119,7 +138,7 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     }
     listen(g, 'click', (e) => { e.stopPropagation(); onSelect(s.id); });
     listen(g, 'keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(s.id); });
-    const at = (e) => { const b = svg.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    const at = (e) => { const b = overlay.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
     listen(g, 'mousemove', (e) => onHover(barLines(s), ...at(e)));
     listen(g, 'mouseleave', () => onLeave());
     plot.appendChild(g);
@@ -134,7 +153,7 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
     lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: l.y2, r: 3.5 }));
     lg.appendChild(svgEl('circle', { class: 'link-hit', cx: x, cy: l.y2, r: 7 }));
-    const at = (e) => { const b = svg.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    const at = (e) => { const b = overlay.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
     listen(lg, 'mousemove', (e) => onHover(linkLines(l, payload), ...at(e)));
     listen(lg, 'mouseleave', () => onLeave());
     linkLayer.appendChild(lg);
@@ -144,19 +163,19 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
   body.appendChild(plot);
   body.appendChild(labels);
   svg.appendChild(body);
-  svg.appendChild(svgEl('rect', { class: 'axis-bg', x: 0, y: 0, width, height: AXIS_H }));
-  svg.appendChild(axis);
+  scaleSvg.appendChild(svgEl('rect', { class: 'axis-bg', x: 0, y: 0, width, height: AXIS_H }));
+  scaleSvg.appendChild(axis);
   const axisHit = svgEl('rect', { class: 'axis-hit', x: LABEL_W, y: 0, width: plotW + PAD_R, height: AXIS_H },
     svgEl('title', null, text('Drag to zoom to an interval')));
-  svg.appendChild(axisHit);
-  const plotX = (e) => e.clientX - svg.getBoundingClientRect().left - LABEL_W;
-  attachBrush({ svg, hit: axisHit, scale, bounds, plotX, left: LABEL_W, height, onBrush, onView });
+  scaleSvg.appendChild(axisHit);
+  attachBrush({ layer: overlay, hit: axisHit, scale, bounds, plotX: plotXOf(scaleSvg), left: LABEL_W, onBrush, onView });
 
-  // wheel zoom + drag pan
-  listen(svg, 'wheel', (e) => {
-    e.preventDefault();
-    onView(zoomAt(scale, plotX(e), e.deltaY < 0 ? 1.25 : 0.8, bounds));
-  });
+  // wheel: the time scale always zooms; the rows zoom only with Ctrl/⌘ (pinch sends ctrlKey) and otherwise scroll natively
+  const zoom = (e, px) => { e.preventDefault(); onView(zoomAt(scale, px(e), e.deltaY < 0 ? 1.25 : 0.8, bounds)); };
+  listen(scaleSvg, 'wheel', (e) => zoom(e, plotXOf(scaleSvg)));
+  listen(svg, 'wheel', (e) => { if (e.ctrlKey || e.metaKey) zoom(e, plotXOf(svg)); });
+
+  // drag pan
   listen(rowsHit, 'mousedown', (e) => { dragX = e.clientX; });
   listen(svg, 'mousemove', (e) => {
     if (dragX == null) return;
@@ -165,6 +184,9 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
     if (dx) onView(pan(scale, dx, bounds));
   });
   for (const t of ['mouseup', 'mouseleave']) listen(svg, t, () => { dragX = null; });
-  host.appendChild(svg);
-  return svg;
+
+  scaleBox.replaceChildren(scaleSvg);
+  scroller.replaceChildren(...(emptyHint ? [el('p', { class: 'empty-hint hint', role: 'status' }, emptyHint)] : []), svg);
+  // browsers may clamp or anchor the offset while the content is swapped
+  scroller.scrollTop = top;
 }

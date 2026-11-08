@@ -650,17 +650,24 @@ test('a non-primary pointerdown starts no band', async () => {
   assert.equal(bands(root), 0);
 });
 
+// happy-dom's WheelEvent ignores clientX, ctrlKey and metaKey in its init dict, so they are defined on the event.
+function wheelAt(node, clientX, { ctrlKey = false, metaKey = false } = {}) {
+  const e = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+  for (const [k, value] of Object.entries({ clientX, ctrlKey, metaKey })) Object.defineProperty(e, k, { value });
+  node.dispatchEvent(e);
+  return e;
+}
+
 test('wheel zoom maps the cursor through the shared plot origin', async () => {
   const { root, app } = boot(payload());
   await app.load();
   const w = app.state.payload.window;
   // Default width 1100 → plot width 836; the plot centre is the window centre.
-  const wheel = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
-  Object.defineProperty(wheel, 'clientX', { value: LABEL_W + 418 }); // happy-dom's WheelEvent ignores clientX in its init
-  root.querySelector('svg.chart').dispatchEvent(wheel);
+  const wheel = wheelAt(root.querySelector('svg.chart'), LABEL_W + 418, { ctrlKey: true });
   const v = app.state.view;
   assert.ok(v.to - v.from < w.to - w.from);
   assert.ok(Math.abs((v.from + v.to) / 2 - (w.from + w.to) / 2) < 1);
+  assert.equal(wheel.defaultPrevented, true);
 });
 
 test('Escape is only intercepted during a gesture', async () => {
@@ -701,4 +708,123 @@ test('choosing a Range after a brush zoom clears the view and shows the new rang
   assert.equal(app.state.rangeMs, Number(other.value));
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(root.querySelector('select[name=range]').value, other.value);
+});
+
+// --- scroll body ---
+const sq = (root, sel) => root.querySelector(sel);
+
+test('the time scale is outside the scroll container', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  assert.ok(sq(root, '.chart-scale-box svg.chart-scale .axis'));
+  assert.ok(sq(root, '.chart-scale-box svg.chart-scale .axis-hit'));
+  const scroll = sq(root, '.chart-scroll');
+  assert.ok(scroll.querySelector('svg.chart'));
+  assert.equal(scroll.querySelector('.axis, .axis-hit'), null);
+  assert.equal(sq(root, '.chart-overlay').parentElement, sq(root, '.chart-host'));
+  for (const sel of ['.filters', '.legend-host', '#details', '.diagnostics']) {
+    assert.ok(sq(root, sel));
+    assert.equal(scroll.contains(sq(root, sel)), false, sel);
+  }
+});
+
+test('the time scale and the rows share width and plot origin', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const scale = sq(root, 'svg.chart-scale');
+  const rows = sq(root, 'svg.chart');
+  assert.equal(scale.getAttribute('width'), rows.getAttribute('width'));
+  const ticks = new Set([...scale.querySelectorAll('.axis text')].map((t) => t.getAttribute('x')));
+  const grid = new Set([...rows.querySelectorAll('line.grid')].map((l) => l.getAttribute('x1')));
+  assert.ok(ticks.size > 0);
+  assert.deepEqual(ticks, grid);
+});
+
+test('row labels and their bars scroll together', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const rows = sq(root, '.chart-scroll > svg.chart');
+  const labels = root.querySelectorAll('.row-label');
+  const barGs = root.querySelectorAll('.bar-g');
+  assert.ok(labels.length > 0 && barGs.length > 0);
+  for (const n of [...labels, ...barGs]) assert.equal(n.closest('svg'), rows);
+});
+
+test('the scroll position and scroller survive every kind of render', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const scroller = sq(root, '.chart-scroll');
+  scroller.scrollTop = 120;
+  // happy-dom does not clamp, so this pins scroller identity and restoration; the harness covers real clamping.
+  const steps = [
+    () => app.load(),
+    () => win.dispatchEvent(new win.Event('resize')),
+    () => wheelAt(sq(root, 'svg.chart'), LABEL_W + 100, { ctrlKey: true }),
+    () => click(sq(root, '.legend-item[data-key="wake"]')),
+    () => click(sq(root, '.bar-g')),
+  ];
+  for (const step of steps) {
+    const before = sq(root, 'svg.chart');
+    await step();
+    assert.notEqual(sq(root, 'svg.chart'), before, 'a render happened');
+    assert.equal(sq(root, '.chart-scroll'), scroller);
+    assert.equal(scroller.scrollTop, 120);
+  }
+});
+
+test('a plain wheel over the rows scrolls instead of zooming', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const e = wheelAt(sq(root, 'svg.chart'), LABEL_W + 100);
+  assert.equal(app.state.view, null);
+  assert.equal(e.defaultPrevented, false);
+});
+
+test('meta+wheel over the rows zooms', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const w = app.state.payload.window;
+  const e = wheelAt(sq(root, 'svg.chart'), LABEL_W + 100, { metaKey: true });
+  assert.ok(app.state.view.to - app.state.view.from < w.to - w.from);
+  assert.equal(e.defaultPrevented, true);
+});
+
+test('a plain wheel over the time scale zooms', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const w = app.state.payload.window;
+  const e = wheelAt(sq(root, 'svg.chart-scale'), LABEL_W + 100);
+  assert.ok(app.state.view.to - app.state.view.from < w.to - w.from);
+  assert.equal(e.defaultPrevented, true);
+});
+
+test('the brush band lives in the overlay and spans it', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  const band = sq(root, '.brush-band');
+  assert.equal(band.parentElement, sq(root, '.chart-overlay'));
+  assert.equal(band.getAttribute('y'), '0');
+  assert.equal(band.getAttribute('height'), '100%');
+  assert.equal(hitOf(root).hasPointerCapture(1), true);
+});
+
+test('hover tooltips live in the overlay and a render clears them', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  sq(root, '.link-g[data-type="wake"]').dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 50 }));
+  assert.ok(sq(root, '.chart-overlay g.tooltip'));
+  await app.load();
+  assert.equal(sq(root, 'g.tooltip'), null);
+});
+
+test('the empty hint does not accumulate across renders', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click($(root, '#fmenu-roots button[name="none"]'));
+  await app.load();
+  await app.load();
+  assert.equal(root.querySelectorAll('.chart-scroll .empty-hint').length, 1);
+  click($(root, '#fmenu-roots button[name="all"]'));
+  assert.equal(root.querySelectorAll('.empty-hint').length, 0);
 });
