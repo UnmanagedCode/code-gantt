@@ -1,6 +1,6 @@
 import { svgEl, text, clear } from '../lib/dom.js';
 
-const CHAR_W = 6.6;
+export const CHAR_W = 6.6;
 const LINE_H = 15;
 
 /** SVG-native tooltip drawn in the chart overlay, in viewport coordinates of the chart box (inline style is blocked by CSP, so it is positioned with a transform attribute). */

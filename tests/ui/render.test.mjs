@@ -10,7 +10,7 @@ globalThis.window = win;
 const { el, svgEl } = await import('../../public/lib/dom.js');
 const { mount } = await import('../../public/app.js');
 const { LABEL_W } = await import('../../public/render/chart.js');
-const { brushView, timeScale } = await import('../../public/lib/scale.js');
+const { brushView, timeScale, readout } = await import('../../public/lib/scale.js');
 
 const EVIL = '<img src=x onerror=alert(1)>';
 const EVIL2 = '"><script>x</script>';
@@ -855,4 +855,107 @@ test('tooltips stay in the accessibility tree; only the brush band is hidden', a
   assert.equal(sq(root, '.chart-overlay').hasAttribute('aria-hidden'), false);
   drag(root, 100, 300);
   assert.equal(sq(root, '.brush-band').getAttribute('aria-hidden'), 'true');
+});
+
+const cross = (root) => root.querySelector('.chart-overlay g.crosshair');
+const crossX = (root) => Number(cross(root).querySelector('line').getAttribute('x1'));
+const crossText = (root) => cross(root).querySelector('text').textContent;
+const leave = (root) => sq(root, '.chart-host').dispatchEvent(new win.PointerEvent('pointerleave'));
+const hover = (root, x) => ptr(hitOf(root), 'pointermove', LABEL_W + x);
+const scaleOf = (app) => { const v = app.state.view ?? app.state.payload.window; return timeScale(v.from, v.to, 836); };
+
+test('hovering the time scale draws a crosshair line spanning the overlay and a readout of the hovered time', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  hover(root, 200);
+  const g = cross(root);
+  assert.equal(root.querySelectorAll('.chart-overlay g.crosshair').length, 1);
+  assert.equal(g.getAttribute('aria-hidden'), 'true');
+  const line = g.querySelector('line');
+  assert.equal(line.getAttribute('x1'), String(LABEL_W + 200));
+  assert.equal(line.getAttribute('y1'), '0');
+  assert.equal(line.getAttribute('y2'), '100%');
+  const sc = scaleOf(app);
+  assert.equal(crossText(root), readout(sc, sc.invert(200)));
+  assert.match(crossText(root), /^\d\d-\d\d \d\d:\d\d:\d\d$/);
+});
+
+test('the crosshair disappears when the pointer leaves the time scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  hover(root, 200);
+  leave(root);
+  assert.equal(cross(root), null);
+  hover(root, 200);
+  ptr(sq(root, 'svg.chart'), 'pointermove', LABEL_W + 200);
+  assert.equal(cross(root), null);
+});
+
+test('no crosshair over the label column of the time scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  ptr(sq(root, '.axis-bg'), 'pointermove', 100);
+  ptr(sq(root, 'svg.chart-scale'), 'pointermove', 100);
+  assert.equal(cross(root), null);
+});
+
+test('during a brush drag the crosshair follows the pointer, clamped to the plot', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  assert.equal(bands(root), 1);
+  assert.equal(crossX(root), LABEL_W + 300);
+  ptr(hitOf(root), 'pointermove', 10);
+  assert.equal(crossX(root), LABEL_W);
+  ptr(hitOf(root), 'pointermove', LABEL_W + 2000);
+  assert.equal(crossX(root), LABEL_W + 836);
+  escape();
+});
+
+test('committing a brush zooms and hides the crosshair until the next move', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const before = app.state.payload.window;
+  drag(root, 100, 300);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 300);
+  const v = app.state.view;
+  assert.ok(v.to - v.from < before.to - before.from);
+  assert.equal(bands(root), 0);
+  assert.equal(cross(root), null);
+  hover(root, 50);
+  const sc = timeScale(v.from, v.to, 836);
+  assert.equal(crossText(root), readout(sc, sc.invert(50)));
+});
+
+test('Escape aborts the brush and leaves no band while the crosshair stays with the pointer', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  escape();
+  assert.equal(app.state.view, null);
+  assert.equal(bands(root), 0);
+  assert.equal(crossX(root), LABEL_W + 300);
+});
+
+test('a re-render while hovering keeps the crosshair at the pointer with the new scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  hover(root, 200);
+  await app.load();
+  assert.equal(crossX(root), LABEL_W + 200);
+  wheelAt(sq(root, 'svg.chart-scale'), LABEL_W + 200);
+  const sc = scaleOf(app);
+  assert.ok(app.state.view);
+  assert.equal(crossX(root), LABEL_W + 200);
+  assert.equal(crossText(root), readout(sc, sc.invert(200)));
+});
+
+test('the crosshair sits in the overlay regardless of the rows scroll offset', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  sq(root, '.chart-scroll').scrollTop = 120;
+  hover(root, 200);
+  assert.equal(cross(root).parentElement, sq(root, '.chart-overlay'));
+  assert.equal(sq(root, '.chart-scroll g.crosshair'), null);
+  assert.equal(cross(root).querySelector('line').getAttribute('y1'), '0');
 });

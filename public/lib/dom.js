@@ -36,8 +36,8 @@ export function svgEl(tag, attrs, ...children) {
 
 export const text = (s) => document.createTextNode(String(s));
 
-export function listen(node, type, fn) {
-  node.addEventListener(type, fn);
+export function listen(node, type, fn, opts) {
+  node.addEventListener(type, fn, opts);
 }
 
 export function clear(node) {

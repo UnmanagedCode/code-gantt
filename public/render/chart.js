@@ -4,6 +4,7 @@ import { ROW_H, HEADER_H } from '../lib/layout.js';
 import { fmtTime, fmtDuration, labelOf } from '../lib/format.js';
 import { endLabel } from './details.js';
 import { attachBrush } from './brush.js';
+import { createCrosshair } from './crosshair.js';
 
 export const LABEL_W = 250;
 export const AXIS_H = 30;
@@ -46,21 +47,22 @@ function barLines(s) {
  * `render` rebuilds only the svgs inside it (scale svg, rows svg) and clears the overlay, so the scroller and its offset survive.
  * `scale` maps time → pixels of the plot area (width = svg width − label column).
  * Wheel routing: over the time scale a plain wheel zooms; over the rows Ctrl/⌘+wheel (or pinch) zooms and a plain wheel scrolls.
- * The overlay holds the brush band and the tooltip, in the chart box's viewport coordinates.
+ * The overlay holds the brush band, the tooltip and the crosshair, in the chart box's viewport coordinates.
  */
 export function createChart(host) {
   const scaleBox = el('div', { class: 'chart-scale-box' });
   const scroller = el('div', { class: 'chart-scroll' });
   const overlay = svgEl('svg', { class: 'chart-overlay' });
   host.append(scaleBox, scroller, overlay);
+  const crosshair = createCrosshair({ host, layer: overlay, left: LABEL_W, bandH: AXIS_H });
   return {
     overlay,
     width: () => scroller.clientWidth,
-    render: (opts) => renderFrame({ scaleBox, scroller, overlay }, opts),
+    render: (opts) => renderFrame({ scaleBox, scroller, overlay, crosshair }, opts),
   };
 }
 
-function renderFrame({ scaleBox, scroller, overlay }, { payload, layout, scale, width, selectedId, bounds, emptyHint, onSelect, onHover, onLeave, onView, onBrush }) {
+function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layout, scale, width, selectedId, bounds, emptyHint, onSelect, onHover, onLeave, onView, onBrush }) {
   const top = scroller.scrollTop;
   clear(overlay);
   const height = layout.height + 8;
@@ -186,6 +188,7 @@ function renderFrame({ scaleBox, scroller, overlay }, { payload, layout, scale, 
   for (const t of ['mouseup', 'mouseleave']) listen(svg, t, () => { dragX = null; });
 
   scaleBox.replaceChildren(scaleSvg);
+  crosshair.update({ scale, hit: axisHit, plotX: plotXOf(scaleSvg), width });
   scroller.replaceChildren(...(emptyHint ? [el('p', { class: 'empty-hint hint', role: 'status' }, emptyHint)] : []), svg);
   // browsers may clamp or anchor the offset while the content is swapped
   scroller.scrollTop = top;
