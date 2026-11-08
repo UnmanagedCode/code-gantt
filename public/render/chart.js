@@ -3,6 +3,7 @@ import { ticks, zoomAt, pan } from '../lib/scale.js';
 import { ROW_H, HEADER_H } from '../lib/layout.js';
 import { fmtTime, fmtDuration, labelOf } from '../lib/format.js';
 import { endLabel } from './details.js';
+import { attachBrush } from './brush.js';
 
 export const LABEL_W = 250;
 export const AXIS_H = 30;
@@ -40,10 +41,10 @@ function barLines(s) {
 }
 
 /**
- * Renders the whole chart as one SVG (labels, axis, rows, bars, links) and wires hover, select, wheel-zoom and drag-pan.
+ * Renders the whole chart as one SVG (labels, axis, rows, bars, links) and wires hover, select, wheel-zoom, drag-pan and axis brush-zoom.
  * `scale` maps time → pixels of the plot area (width = svg width − label column).
  */
-export function renderChart(host, { payload, layout, scale, width, selectedId, bounds, onSelect, onHover, onLeave, onView }) {
+export function renderChart(host, { payload, layout, scale, width, selectedId, bounds, onSelect, onHover, onLeave, onView, onBrush }) {
   clear(host);
   const height = AXIS_H + layout.height + 8;
   const X = (t) => LABEL_W + scale.x(t);
@@ -145,12 +146,16 @@ export function renderChart(host, { payload, layout, scale, width, selectedId, b
   svg.appendChild(body);
   svg.appendChild(svgEl('rect', { class: 'axis-bg', x: 0, y: 0, width, height: AXIS_H }));
   svg.appendChild(axis);
+  const axisHit = svgEl('rect', { class: 'axis-hit', x: LABEL_W, y: 0, width: plotW + PAD_R, height: AXIS_H },
+    svgEl('title', null, text('Drag to zoom to an interval')));
+  svg.appendChild(axisHit);
+  const plotX = (e) => e.clientX - svg.getBoundingClientRect().left - LABEL_W;
+  attachBrush({ svg, hit: axisHit, scale, bounds, plotX, left: LABEL_W, height, onBrush, onView });
 
   // wheel zoom + drag pan
   listen(svg, 'wheel', (e) => {
     e.preventDefault();
-    const b = svg.getBoundingClientRect();
-    onView(zoomAt(scale, e.clientX - b.left - LABEL_W, e.deltaY < 0 ? 1.25 : 0.8, bounds));
+    onView(zoomAt(scale, plotX(e), e.deltaY < 0 ? 1.25 : 0.8, bounds));
   });
   listen(rowsHit, 'mousedown', (e) => { dragX = e.clientX; });
   listen(svg, 'mousemove', (e) => {

@@ -27,6 +27,8 @@ export function mount(root, api) {
   clear(root);
   root.append(banner, filtersHost, legendHost, el('div', { class: 'main' }, chartHost, details), diag);
 
+  let brushing = false;
+  let stale = false;
   const bounds = () => state.payload.window;
   const filterBar = createFilterBar(filtersHost, {
     onChange: () => render(),
@@ -38,6 +40,7 @@ export function mount(root, api) {
   function render() {
     const p = state.payload;
     if (!p) return;
+    if (brushing) { stale = true; return; }
     const d = p.diagnostics;
     clear(banner);
     if (d.horizon == null) banner.appendChild(text('The event log has no complete history yet: nothing is drawn.'));
@@ -67,6 +70,7 @@ export function mount(root, api) {
       onSelect: (id) => { state.selected = id; hideTooltip(svg); render(); },
       onHover: (lines, x, y) => showTooltip(svg, lines, x, y),
       onLeave: () => hideTooltip(svg),
+      onBrush: (active) => { brushing = active; if (!active && stale) { stale = false; render(); } },
       onView: (s) => { state.view = { from: s.from, to: s.to }; render(); },
     });
     if (p.projects.length > 0 && layout.rows.length === 0) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timeScale, zoomAt, pan, ticks } from '../../public/lib/scale.js';
+import { timeScale, zoomAt, pan, ticks, brushView, brushSpan, BRUSH_MIN_PX, MIN_SPAN_MS } from '../../public/lib/scale.js';
 
 const bounds = { from: 0, to: 1_000_000 };
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} !~ ${b}`);
@@ -54,4 +54,57 @@ test('ticks are monotonic, inside the domain, and of a sensible count', () => {
       assert.equal(typeof t[i].label, 'string');
     }
   }
+});
+
+test('brushView maps a drag to the times under its ends', () => {
+  const s = timeScale(0, 1_000_000, 500);
+  const v = brushView(s, 100, 300, bounds);
+  near(v.from, s.invert(100));
+  near(v.to, s.invert(300));
+  assert.equal(v.width, 500);
+});
+
+test('brushView gives the same interval for either drag direction', () => {
+  const s = timeScale(0, 1_000_000, 500);
+  const a = brushView(s, 100, 300, bounds);
+  const b = brushView(s, 300, 100, bounds);
+  assert.deepEqual([b.from, b.to, b.width], [a.from, a.to, a.width]);
+});
+
+test('brushView ignores a click and a drag below BRUSH_MIN_PX', () => {
+  const s = timeScale(0, 1_000_000, 500);
+  assert.equal(brushView(s, 200, 200, bounds), null);
+  assert.equal(brushView(s, 200, 200 + BRUSH_MIN_PX - 1, bounds), null);
+  assert.ok(brushView(s, 200, 200 + BRUSH_MIN_PX, bounds));
+});
+
+test('brushView clamps pixels outside the plot to its edges', () => {
+  const s = timeScale(0, 1_000_000, 500);
+  assert.equal(brushView(s, -50, 250, bounds).from, 0);
+  assert.equal(brushView(s, 250, 900, bounds).to, 1_000_000);
+  assert.equal(brushView(s, 600, 900, bounds), null);
+  assert.equal(brushView(s, -90, -10, bounds), null);
+});
+
+test('brushView stays inside bounds when the view extends past them', () => {
+  const s = timeScale(-500_000, 1_500_000, 500);
+  const v = brushView(s, 0, 500, bounds);
+  assert.ok(v.from >= bounds.from && v.to <= bounds.to);
+  const w = brushView(s, 400, 500, bounds);
+  assert.ok(w.from >= bounds.from && w.to <= bounds.to);
+});
+
+test('brushView widens a sub-minimum interval to MIN_SPAN_MS around its centre', () => {
+  const s = timeScale(500_000, 500_000 + 2000, 500);
+  const v = brushView(s, 100, 100 + BRUSH_MIN_PX, bounds);
+  near(v.to - v.from, MIN_SPAN_MS);
+  const mid = (s.invert(100) + s.invert(100 + BRUSH_MIN_PX)) / 2;
+  near((v.from + v.to) / 2, mid);
+  assert.ok(v.from >= bounds.from && v.to <= bounds.to);
+});
+
+test('brushSpan clamps and orders pixels', () => {
+  const s = timeScale(0, 1000, 500);
+  assert.deepEqual(brushSpan(s, 700, -20), { lo: 0, hi: 500 });
+  assert.deepEqual(brushSpan(s, 300, 100), { lo: 100, hi: 300 });
 });

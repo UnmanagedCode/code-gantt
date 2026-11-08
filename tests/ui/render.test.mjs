@@ -4,11 +4,12 @@ import { Window } from 'happy-dom';
 import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
 
 const win = new Window({ url: 'http://localhost/', width: 1200, height: 800 });
-for (const k of ['document', 'Node', 'Element', 'Event', 'MouseEvent', 'KeyboardEvent']) globalThis[k] = win[k];
+for (const k of ['document', 'Node', 'Element', 'Event', 'MouseEvent', 'KeyboardEvent', 'PointerEvent']) globalThis[k] = win[k];
 globalThis.window = win;
 
 const { el, svgEl } = await import('../../public/lib/dom.js');
 const { mount } = await import('../../public/app.js');
+const { LABEL_W } = await import('../../public/render/chart.js');
 
 const EVIL = '<img src=x onerror=alert(1)>';
 const EVIL2 = '"><script>x</script>';
@@ -470,4 +471,123 @@ test('the Trees button reflects its selection', async () => {
   assert.equal(summaryOf(root, 'roots'), 'Trees · All');
   click($(root, '#fmenu-roots .fmenu-row[data-key="root"] button.only'));
   assert.equal(summaryOf(root, 'roots'), 'Trees · 1 of 2');
+});
+
+// --- axis brush ---
+const ptr = (node, type, x, extra = {}) => node.dispatchEvent(new win.PointerEvent(type, { bubbles: true, clientX: x, pointerId: 1, isPrimary: true, button: 0, ...extra }));
+const hitOf = (root) => root.querySelector('.axis-hit');
+const bands = (root) => root.querySelectorAll('.brush-band').length;
+const escape = () => document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const drag = (root, a, b) => { ptr(hitOf(root), 'pointerdown', LABEL_W + a); ptr(hitOf(root), 'pointermove', LABEL_W + b); };
+
+test('dragging across the time scale shows a band, captures the pointer, and zooms on release', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  assert.equal(bands(root), 1);
+  assert.equal(hitOf(root).hasPointerCapture(1), true);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 300);
+  assert.equal(bands(root), 0);
+  const v = app.state.view;
+  const w = app.state.payload.window;
+  assert.ok(w.from <= v.from && v.from < v.to && v.to <= w.to);
+  assert.ok(v.to - v.from < w.to - w.from);
+});
+
+test('a right-to-left drag over the same pixels zooms to the same view', async () => {
+  const a = boot(payload());
+  await a.app.load();
+  drag(a.root, 100, 300);
+  ptr(hitOf(a.root), 'pointerup', LABEL_W + 300);
+  const b = boot(payload());
+  await b.app.load();
+  drag(b.root, 300, 100);
+  ptr(hitOf(b.root), 'pointerup', LABEL_W + 100);
+  assert.deepEqual(b.app.state.view, a.app.state.view);
+});
+
+test('a click or sub-threshold drag on the time scale does not zoom', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 100);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 100);
+  assert.equal(app.state.view, null);
+  assert.equal(bands(root), 0);
+  drag(root, 100, 102);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 102);
+  assert.equal(app.state.view, null);
+  assert.equal(bands(root), 0);
+});
+
+test('Escape during a drag aborts it; a later pointerup does nothing', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  escape();
+  assert.equal(bands(root), 0);
+  assert.equal(app.state.view, null);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 300);
+  assert.equal(app.state.view, null);
+});
+
+test('pointercancel during a drag aborts it', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  ptr(hitOf(root), 'pointercancel', LABEL_W + 300);
+  assert.equal(bands(root), 0);
+  assert.equal(app.state.view, null);
+});
+
+test('only a primary-button press starts a brush', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  ptr(hitOf(root), 'pointerdown', LABEL_W + 100, { button: 2 });
+  assert.equal(bands(root), 0);
+  assert.equal(hitOf(root).hasPointerCapture(1), false);
+});
+
+test('dragging the rows does not start a brush', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  ptr(root.querySelector('.plot-bg'), 'pointerdown', LABEL_W + 100);
+  assert.equal(bands(root), 0);
+});
+
+test('Reset zoom after a drag zoom restores the window; Range keeps the loaded range', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 300);
+  assert.ok(app.state.view);
+  assert.equal(root.querySelector('select[name=range]').value, String(app.state.rangeMs));
+  click(root.querySelector('button[name="reset-zoom"]'));
+  assert.equal(app.state.view, null);
+});
+
+test('a reload during a drag is deferred until the drag ends', async () => {
+  for (const commit of [true, false]) {
+    const first = payload();
+    let current = first;
+    document.body.replaceChildren();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const app = mount(host, { getJson: async () => current, subscribe: null });
+    await app.load();
+    const svg = host.querySelector('svg.chart');
+    drag(host, 100, 300);
+    const more = payload();
+    more.sessions.w3 = { ...more.sessions.w2, id: 'w3' };
+    more.projects[0].trees[0].rows.push({ id: 'w3', depth: 1, context: false });
+    current = more;
+    await app.load();
+    assert.equal(svg.isConnected, true);
+    assert.equal(bands(host), 1);
+    assert.equal(host.querySelector('[data-id="w3"]'), null);
+    if (commit) ptr(hitOf(host), 'pointerup', LABEL_W + 300);
+    else escape();
+    assert.ok(host.querySelector('[data-id="w3"]'));
+    assert.equal(app.state.view === null, !commit);
+    assert.equal(bands(host), 0);
+  }
 });
