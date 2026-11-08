@@ -25,7 +25,9 @@ test('selectAll/selectNone act only on the given keys, so a search leaves hidden
 });
 
 test('only and toggle return new sets without mutating the input', () => {
-  assert.deepEqual([...only('x')], ['x']);
+  const sel = S('a', 'b', 'z');
+  assert.deepEqual([...only(sel, ['a', 'b', 'c'], 'c')].sort(), ['c', 'z']);
+  assert.deepEqual([...sel].sort(), ['a', 'b', 'z']);
   const base = S('a');
   assert.deepEqual([...toggle(base, 'b', true)].sort(), ['a', 'b']);
   assert.deepEqual([...toggle(base, 'a', false)], []);

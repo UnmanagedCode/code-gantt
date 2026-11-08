@@ -18,6 +18,8 @@ export function buildFixture(now = Date.now()) {
     a0000004: sess({ id: 'a0000004', title: 'Beta approx-end worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(36)), backing: 'bk-4' }),
     a0000005: sess({ id: 'a0000005', title: 'Beta recent worker', parent: 'c0000001', project: 'beta', conducted: true, at: iso(t(12)), backing: 'bk-5' }),
     c0000002: sess({ id: 'c0000002', title: 'Old conductor', at: iso(t(46)), backing: 'cb-old' }),
+    c0000003: sess({ id: 'c0000003', title: 'Delta conductor', at: iso(t(7)), backing: 'cb-3' }),
+    d0000001: sess({ id: 'd0000001', title: 'Delta worker', parent: 'c0000003', project: 'delta', conducted: true, at: iso(t(6)), backing: 'bk-d1' }),
     a0000006: sess({ id: 'a0000006', title: 'Gamma old worker', parent: 'c0000002', project: 'gamma', conducted: true, at: iso(t(45)), backing: 'bk-6' }),
   };
   const migrated = { type: 'conductor' }; // migrated calls carry no caller

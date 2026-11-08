@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dimensionItems, selectedKeys, applySelection, HEARTBEAT_KEY } from '../../public/lib/filterModel.js';
+import { dimensionItems, selectedKeys, applySelection, listedProjects, emptyHint, HEARTBEAT_KEY } from '../../public/lib/filterModel.js';
 import { applyFilters, defaultFilters } from '../../public/lib/layout.js';
 
 const S = (id, extra = {}) => ({ id, start: 100, end: 900, endKind: 'exited', turns: [], stages: [], rotations: [], marks: [], turnCount: 0, ...extra });
@@ -116,4 +116,34 @@ test('isAll: null means All for projects/roots, an explicit Set never does; link
   assert.equal(isAll(f, 'links', items.links), true);
   f.heartbeat = false;
   assert.equal(isAll(f, 'links', items.links), false);
+});
+
+// r sits under A and C; r2 under B.
+const spanning = () => {
+  const p = payload();
+  p.projects.push({ project: 'C', trees: [{ rootId: 'r', rows: [{ id: 'r', depth: 0, context: true }] }] });
+  return p;
+};
+const listed = (p, roots) => listedProjects(p, { ...defaultFilters(p), roots }, dimensionItems(p).projects).map((i) => i.key);
+
+test('listedProjects: null roots lists every project; a subset lists the projects its trees touch, in payload order', () => {
+  const p = spanning();
+  assert.deepEqual(listedProjects(p, defaultFilters(p), dimensionItems(p).projects), dimensionItems(p).projects);
+  assert.deepEqual(listed(p, new Set(['r'])), ['A', 'C']);
+  assert.deepEqual(listed(p, new Set(['r2'])), ['B']);
+  assert.deepEqual(listed(p, new Set()), []);
+  assert.deepEqual(listed(p, new Set(['gone'])), []);
+});
+
+test('emptyHint names the empty filter and falls back to a generic text; the three differ', () => {
+  const p = spanning();
+  const hint = (over) => emptyHint(p, { ...defaultFilters(p), ...over });
+  const conductors = hint({ roots: new Set() });
+  const projects = hint({ roots: new Set(['r']), projects: new Set(['B']) });
+  const generic = hint({ roots: new Set(['r']), projects: new Set(['A']) });
+  assert.match(conductors, /conductor/i);
+  assert.match(projects, /project/i);
+  assert.equal(hint({ roots: new Set(['gone']) }), conductors);
+  assert.equal(hint({ projects: new Set() }), projects);
+  assert.equal(new Set([conductors, projects, generic]).size, 3);
 });

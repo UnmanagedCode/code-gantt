@@ -1,5 +1,5 @@
 // Pure adapter between `state.filters` (the only store) and the per-dimension key sets the filter UI works with.
-// Dimension ids: 'projects' | 'roots' | 'links'.
+// Dimension ids: 'projects' | 'roots' | 'links'. The 'roots' dimension is the Conductors filter (a tree is keyed by its root, the conductor).
 import { labelOf } from './format.js';
 
 /** Pseudo-item for heartbeat wakes in the links dimension (not a link type). */
@@ -34,4 +34,22 @@ export function applySelection(filters, dim, items, set) {
     return;
   }
   filters[dim] = items.every((i) => set.has(i.key)) ? null : new Set(set);
+}
+
+/** Projects the Projects menu lists: all of them under Conductors All, else those with a tree whose root is selected. */
+export function listedProjects(payload, filters, projectItems) {
+  if (filters.roots == null) return projectItems;
+  const touched = new Set(payload.projects
+    .filter((g) => g.trees.some((t) => filters.roots.has(t.rootId))).map((g) => g.project));
+  return projectItems.filter((i) => touched.has(i.key));
+}
+
+/** Text for the chart's empty state, naming the filter that left nothing to draw. */
+export function emptyHint(payload, filters) {
+  const items = dimensionItems(payload);
+  const roots = selectedKeys(filters, 'roots', items.roots);
+  if (!items.roots.some((i) => roots.has(i.key))) return 'No conductors selected.';
+  const projects = selectedKeys(filters, 'projects', items.projects);
+  if (!listedProjects(payload, filters, items.projects).some((i) => projects.has(i.key))) return 'No projects selected.';
+  return 'Nothing to draw for this selection.';
 }

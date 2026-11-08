@@ -16,7 +16,8 @@ export function selectNone(selected, keys) {
   return new Set([...selected].filter((k) => !drop.has(k)));
 }
 
-export const only = (key) => new Set([key]);
+/** Selects `key` and deselects the other `keys`; selected keys outside `keys` are left alone. */
+export const only = (selected, keys, key) => selectAll(selectNone(selected, keys), [key]);
 
 export function toggle(selected, key, on) {
   const next = new Set(selected);

@@ -11,7 +11,7 @@ const setHidden = (node, hidden) => { if (hidden) node.setAttribute('hidden', ''
  * so a render (checkbox toggle, live reload) neither closes it nor loses focus.
  * Holds no selection of its own: `update(items, selected)` pushes it in, `onSelect(nextSet)` writes it out.
  */
-export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, onOpen }) {
+export function createFilterMenu({ dim, label, namePrefix, grouped, emptyText, onSelect, onOpen }) {
   let items = [];
   let selected = new Set();
   let query = '';
@@ -50,7 +50,7 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, on
     listen(input, 'change', () => onSelect(toggle(selected, item.key, input.checked)));
     checks.push({ input, key: item.key });
     const onlyBtn = el('button', { type: 'button', class: 'only', name: 'only', 'aria-label': `Only ${item.label}`, 'data-focus-id': `only:${item.key}` }, 'only');
-    listen(onlyBtn, 'click', () => onSelect(only(item.key)));
+    listen(onlyBtn, 'click', () => onSelect(only(selected, items.map((i) => i.key), item.key)));
     return el('div', { class: 'fmenu-row', 'data-key': item.key },
       el('label', { class: 'check' }, input, dim === 'links' ? swatch(item.key) : null, item.label), onlyBtn);
   }
@@ -88,7 +88,7 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, on
     groupChecks = [];
     const vis = visible();
     list.append(...vis.map((g) => (grouped ? group(g) : g.items.map(row))).flat());
-    empty.textContent = vis.length === 0 && query.trim() !== '' ? 'No matches' : '';
+    empty.textContent = items.length === 0 ? (emptyText ?? '') : vis.length === 0 && query.trim() !== '' ? 'No matches' : '';
     if (focusId) [...list.querySelectorAll('[data-focus-id]')].find((n) => n.getAttribute('data-focus-id') === focusId)?.focus();
   }
 

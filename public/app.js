@@ -1,6 +1,7 @@
 import { el, clear, text, listen } from './lib/dom.js';
 import { timeScale } from './lib/scale.js';
 import { applyFilters, defaultFilters } from './lib/layout.js';
+import { emptyHint } from './lib/filterModel.js';
 import { createChart, LABEL_W } from './render/chart.js';
 import { createFilterBar } from './render/filters.js';
 import { createLegend } from './render/legend.js';
@@ -68,7 +69,7 @@ export function mount(root, api) {
     const layout = applyFilters(p, state.filters);
     chart.render({
       payload: p, layout, scale, width, bounds: bounds(), selectedId: state.selected,
-      emptyHint: p.projects.length > 0 && layout.rows.length === 0 ? 'No projects or trees selected.' : null,
+      emptyHint: p.projects.length > 0 && layout.rows.length === 0 ? emptyHint(p, state.filters) : null,
       onSelect: (id) => { state.selected = id; hideTooltip(chart.overlay); render(); },
       onHover: (lines, x, y) => showTooltip(chart.overlay, lines, x, y),
       onLeave: () => hideTooltip(chart.overlay),

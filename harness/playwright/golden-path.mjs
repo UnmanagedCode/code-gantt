@@ -137,6 +137,31 @@ try {
     await page.click('h1');
     assert.equal(await page.locator('.empty-hint').count(), 0);
 
+    // Conductors filter: first in the toolbar, narrows the Projects list.
+    assert.deepEqual(await page.$$eval('.filter-row .fmenu-btn', (bs) => bs.map((b) => b.getAttribute('name'))), ['filter:roots', 'filter:projects', 'filter:links']);
+    assert.match(await page.textContent('button[name="filter:roots"]'), /^\s*Conductors/);
+    const listedProjects = () => page.$$eval('#fmenu-projects .fmenu-row', (rs) => rs.map((r) => r.getAttribute('data-key')));
+    await page.click('button[name="filter:roots"]');
+    await page.hover('#fmenu-roots .fmenu-row[data-key="c0000001"]');
+    await page.click('#fmenu-roots .fmenu-row[data-key="c0000001"] button.only');
+    await page.click('button[name="filter:projects"]');
+    assert.deepEqual(await listedProjects(), ['alpha', 'beta']);
+    assert.equal(await page.locator('.project-label', { hasText: 'delta' }).count(), 0);
+    await page.screenshot({ path: path.join(shots, '07d-conductors-narrowed.png'), fullPage: true });
+    await page.click('button[name="filter:roots"]');
+    await page.click('#fmenu-roots button[name="none"]');
+    await page.click('button[name="filter:projects"]');
+    assert.equal((await listedProjects()).length, 0);
+    assert.notEqual((await page.textContent('#fmenu-projects .fmenu-empty')).trim(), '');
+    assert.equal(await page.locator('.empty-hint').isVisible(), true);
+    await page.screenshot({ path: path.join(shots, '07e-conductors-none.png'), fullPage: true });
+    await page.click('button[name="filter:roots"]');
+    await page.click('#fmenu-roots button[name="all"]');
+    await page.click('button[name="filter:projects"]');
+    assert.ok((await listedProjects()).includes('delta'));
+    await page.click('h1');
+    assert.equal(await page.locator('.empty-hint').count(), 0);
+
     // Scrolled body: the rows scroll inside the chart while the chrome stays put.
     await page.setViewportSize({ width: 1500, height: 340 });
     // The resize handler re-renders the svgs; wait for it so no measurement races a svg swap.
@@ -214,7 +239,7 @@ try {
       const bars = [...document.querySelectorAll('.bar-g')];
       const index = bars.findIndex((g) => {
         const b = g.getBoundingClientRect();
-        return b.top >= r.top && b.bottom <= r.bottom && !new RegExp(`ID\\s*${g.getAttribute('data-id')}(?!\\w)`).test(shownText);
+        return b.top >= r.top && b.bottom <= r.bottom && !new RegExp(`ID\\s*${g.getAttribute('data-id')}(?![0-9a-f])`).test(shownText);
       });
       return index < 0 ? null : { index, id: bars[index].getAttribute('data-id') };
     }, detailsBefore);
