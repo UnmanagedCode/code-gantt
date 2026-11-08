@@ -1,6 +1,7 @@
 // Pure time-scale math: no DOM, so it is testable under plain Node.
 
-const MIN_SPAN_MS = 1000;
+export const MIN_SPAN_MS = 1000;
+export const BRUSH_MIN_PX = 4;
 
 export function timeScale(from, to, width) {
   const span = to - from;
@@ -31,6 +32,25 @@ export function zoomAt(scale, cursorX, factor, bounds) {
 export function pan(scale, dx, bounds) {
   const span = scale.to - scale.from;
   const from = fit(scale.from - (dx / scale.width) * span, span, bounds);
+  return timeScale(from, from + span, scale.width);
+}
+
+/** Two pixel positions clamped to the plot `[0, scale.width]` and ordered. */
+export function brushSpan(scale, x0, x1) {
+  const c = (x) => Math.min(scale.width, Math.max(0, x));
+  const a = c(x0);
+  const b = c(x1);
+  return { lo: Math.min(a, b), hi: Math.max(a, b) };
+}
+
+/** The view for a brush from pixel `x0` to `x1`, or null when it is a click / jitter. */
+export function brushView(scale, x0, x1, bounds) {
+  const { lo, hi } = brushSpan(scale, x0, x1);
+  if (hi - lo < BRUSH_MIN_PX) return null;
+  const tLo = Math.max(bounds.from, scale.invert(lo));
+  const tHi = Math.min(bounds.to, scale.invert(hi));
+  const span = Math.min(bounds.to - bounds.from, Math.max(MIN_SPAN_MS, tHi - tLo));
+  const from = fit((tLo + tHi) / 2 - span / 2, span, bounds);
   return timeScale(from, from + span, scale.width);
 }
 

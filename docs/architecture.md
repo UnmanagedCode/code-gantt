@@ -13,7 +13,7 @@
 | `src/live.js` | `createLive`: store-stat poll, `/ws` hint, liveness fetch; network, timers injectable. |
 | `src/http/app.js` | `createApp`: routes, static allowlist, security headers, SSE client cap. |
 | `src/serial.js` | `createSerializer`: one-at-a-time async queue. |
-| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
+| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart`, `brush`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
 | `harness/playwright/` | `golden-path.mjs`, `real-store.mjs`, `fixture-store.mjs`, `resolve.mjs`. |
 
 ## Data flow
@@ -92,6 +92,11 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 - Links: an explicit `linkTypes` Set plus the `heartbeat` boolean; `HEARTBEAT_KEY` is the pseudo-item the UI uses for it.
 - `render/filters.js`, `filterMenu.js` and `legend.js` are built once and updated in place, so open state and focus survive renders.
 - `tests/ui/linkGroups.test.mjs` fails when a type in `src/model/linkTypes.js` `LINK_TYPES` is missing from `LINK_GROUPS`.
+
+## Frontend zoom state
+
+- `state.view` in `public/app.js` is the only zoom store (`null` = `payload.window`). Wheel, pan and brush all write it through `renderChart`'s `onView`; *Reset zoom* and the Range select clear it.
+- `renderChart` rebuilds the svg on every render, so a gesture spanning renders keeps its state outside the svg (pan: module-level `dragX`) or defers renders (brush: `onBrush(true)` makes `render()` set `stale` and return; `onBrush(false)` runs the pending render).
 
 ## Frontend security
 

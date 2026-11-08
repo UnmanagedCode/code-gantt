@@ -97,6 +97,19 @@ try {
     await page.screenshot({ path: path.join(shots, '06-zoom-pan.png'), fullPage: true });
     await page.click('button[name="reset-zoom"]');
 
+    // Brush on the time scale: a band while dragging, a zoomed axis after release.
+    const axisBefore = await page.$eval('.axis', (n) => n.textContent);
+    await page.mouse.move(svgBox.x + 250 + 100, svgBox.y + 15);
+    await page.mouse.down();
+    await page.mouse.move(svgBox.x + 250 + 400, svgBox.y + 15, { steps: 5 });
+    assert.equal(await page.locator('.brush-band').count(), 1, 'band shown while dragging');
+    await page.screenshot({ path: path.join(shots, '06b-brush-band.png'), fullPage: true });
+    await page.mouse.up();
+    await page.waitForFunction((b) => document.querySelector('.axis').textContent !== b, axisBefore);
+    assert.equal(await page.locator('.brush-band').count(), 0, 'band removed after release');
+    await page.screenshot({ path: path.join(shots, '06c-brush-zoomed.png'), fullPage: true });
+    await page.click('button[name="reset-zoom"]');
+
     await page.click('button[name="filter:projects"]');
     await page.uncheck('input[name="project:beta"]');
     assert.equal(await page.locator('.project-label', { hasText: 'beta' }).count(), 0);

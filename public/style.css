@@ -73,6 +73,8 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .axis text { fill: var(--muted-foreground); }
 .axis-bg { fill: var(--card); }
 .plot-bg { fill: transparent; cursor: grab; }
+.axis-hit { fill: transparent; cursor: crosshair; touch-action: none; }
+.brush-band { fill: color-mix(in oklab, var(--primary) 18%, transparent); stroke: var(--primary); stroke-width: 1; pointer-events: none; }
 .project-band { fill: var(--muted); }
 .project-label { font-weight: 600; }
 .stripe { fill: transparent; }
