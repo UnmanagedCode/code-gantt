@@ -152,7 +152,7 @@ export function createFilterMenu({ dim, label, namePrefix, grouped, onSelect, on
     if (i < 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); (ctls[i + 1] ?? t).focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); (i === 0 ? search : ctls[i - 1]).focus(); }
-    else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && t.hasAttribute('data-group-check')) {
+    else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && t.hasAttribute('data-group-check') && query.trim() === '') {
       e.preventDefault();
       toggleExpanded(t.getAttribute('data-group-check'), e.key === 'ArrowRight');
     }

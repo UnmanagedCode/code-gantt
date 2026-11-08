@@ -364,11 +364,11 @@ test('focus survives a reload that really rebuilds the row list', async () => {
   const { root, app } = boot(p);
   await app.load();
   click(btn(root, 'links'));
-  $(root, 'input[name="link:spawn"]').focus();
+  $(root, 'input[name="link:forward"]').focus();
   p.linkTypes = [...p.linkTypes, 'set_mode'];
   await app.load();
   assert.ok($(root, 'input[name="link:set_mode"]'), 'list was rebuilt with the new type');
-  assert.equal(document.activeElement, $(root, 'input[name="link:spawn"]'));
+  assert.equal(document.activeElement, $(root, 'input[name="link:forward"]'));
 });
 
 test('search matches group names and item names; disclose is disabled while searching and groups show expanded', async () => {
@@ -436,4 +436,38 @@ test('Trees None shows the empty hint inside the chart host', async () => {
   await app.load();
   click($(root, '#fmenu-roots button[name="none"]'));
   assert.ok($(root, '.chart-host .empty-hint[role="status"]'));
+});
+
+test('arrow keys on a group checkbox do not change expansion while a search is active', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  search.value = 'wake';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  key(search, 'ArrowDown');
+  assert.equal(document.activeElement, $(root, 'input[name="group:wakes"]'));
+  key(document.activeElement, 'ArrowRight');
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.equal(isHidden($(root, '#fmenu-links-g-wakes')), true);
+});
+
+test('the Links summary counts every item, not only the rows a search leaves visible', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  setChecked($(root, 'input[name="link:wake"]'), false);
+  click(btn(root, 'links'));
+  const search = $(root, 'input[name="search:links"]');
+  search.value = 'wake';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.equal(summaryOf(root, 'links'), 'Links · 5 of 6');
+});
+
+test('the Trees button reflects its selection', async () => {
+  const { root, app } = boot(two());
+  await app.load();
+  assert.equal(summaryOf(root, 'roots'), 'Trees · All');
+  click($(root, '#fmenu-roots .fmenu-row[data-key="root"] button.only'));
+  assert.equal(summaryOf(root, 'roots'), 'Trees · 1 of 2');
 });

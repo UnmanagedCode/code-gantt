@@ -49,5 +49,6 @@ test('toggleGroup: some → all, all → none, none → all', () => {
 test('an explicit subset never reads All, even when it covers every item; None only when non-empty total', () => {
   assert.equal(summary('Projects', 1, 1, false), 'Projects · 1 of 1');
   assert.equal(summary('Projects', 0, 2, false), 'Projects · None');
+  assert.equal(summary('Projects', 0, 0, false), 'Projects · 0 of 0');
   assert.equal(summary('Projects', 2, 2, true), 'Projects · All');
 });

@@ -110,6 +110,9 @@ test('isAll: null means All for projects/roots, an explicit Set never does; link
   assert.equal(isAll(f, 'projects', items.projects), true);
   f.projects = new Set(['A', 'B']);
   assert.equal(isAll(f, 'projects', items.projects), false);
+  assert.equal(isAll(f, 'roots', items.roots), true);
+  f.roots = new Set(['r', 'r2']);
+  assert.equal(isAll(f, 'roots', items.roots), false);
   assert.equal(isAll(f, 'links', items.links), true);
   f.heartbeat = false;
   assert.equal(isAll(f, 'links', items.links), false);
