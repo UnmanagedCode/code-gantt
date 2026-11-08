@@ -293,6 +293,8 @@ test('a lead driving two projects gets the root link in each band; with Conducto
   const ls = linesFor(res, 'c', 'l1');
   assert.equal(ls.length, 3);
   assert.ok(ls.some((l) => l.y2 === yOf(res, 'l1', 'beta')));
+  assert.ok(ls.some((l) => l.y1 === yOf(res, 'c', 'alpha') && l.y2 === yOf(res, 'l1', 'alpha')));
+  assert.equal(new Set(ls.map((l) => l.key)).size, 3);
   const f = { ...defaultFilters(p), projects: new Set(['alpha', 'beta']) };
   const r2 = applyFilters(p, f);
   assert.deepEqual([linesFor(r2, 'c', 'l1').length, r2.stubs.length], [2, 0]);
@@ -316,4 +318,17 @@ test('links between context copies that are not root ↔ own lead stay in one ba
   );
   const res = applyFilters(p, defaultFilters(p));
   assert.deepEqual([linesFor(res, 'c', 'c2').length, linesFor(res, 'l1', 'l2').length, linesFor(res, 'c', 'l2').length], [1, 1, 1]);
+});
+
+test('a root link to a non-lead worker keeps its single band even when the worker has copies in several bands', () => {
+  const p = treesPayload(
+    [{ rootId: 'c', rows: [R('c'), W('d1', 1), W('x', 2)] }],
+    { c: S('c', 0, 9000), d1: S('d1', 0, 9000, { project: 'alpha' }), x: S('x', 0, 9000, { project: 'beta' }) },
+    [{ ts: 1000, type: 'send_prompt', from: 'c', to: 'd1' }],
+  );
+  const res = applyFilters(p, defaultFilters(p));
+  assert.ok(res.rows.filter((r) => r.kind === 'row' && r.id === 'd1').length > 1, 'd1 has a copy in beta');
+  const ls = linesFor(res, 'c', 'd1');
+  assert.equal(ls.length, 1);
+  assert.equal(ls[0].y2, yOf(res, 'd1', 'alpha'));
 });
