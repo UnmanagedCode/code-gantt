@@ -433,7 +433,7 @@ test('legend focus stays on the clicked button; heartbeat follows wake with a do
   assert.equal(document.activeElement, $(root, '.legend-item[data-key="wake"]'));
 });
 
-test('Trees None shows the empty hint inside the chart host', async () => {
+test('Conductors None shows the empty hint inside the chart host', async () => {
   const { root, app } = boot(payload());
   await app.load();
   click($(root, '#fmenu-roots button[name="none"]'));
@@ -466,12 +466,117 @@ test('the Links summary counts every item, not only the rows a search leaves vis
   assert.equal(summaryOf(root, 'links'), 'Links · 5 of 6');
 });
 
-test('the Trees button reflects its selection', async () => {
+test('the Conductors button reflects its selection', async () => {
   const { root, app } = boot(two());
   await app.load();
-  assert.equal(summaryOf(root, 'roots'), 'Trees · All');
+  assert.equal(summaryOf(root, 'roots'), 'Conductors · All');
   click($(root, '#fmenu-roots .fmenu-row[data-key="root"] button.only'));
-  assert.equal(summaryOf(root, 'roots'), 'Trees · 1 of 2');
+  assert.equal(summaryOf(root, 'roots'), 'Conductors · 1 of 2');
+});
+
+// root touches proj and third; root2 touches other.
+const three = () => {
+  const p = two();
+  p.projects.push({ project: 'third', trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true }, { id: 'w3', depth: 1, context: false }] }] });
+  p.sessions.w3 = { ...p.sessions.w2, id: 'w3', project: 'third' };
+  return p;
+};
+const listedKeys = (root, dim) => [...root.querySelectorAll(`#fmenu-${dim} .fmenu-row`)].map((n) => n.getAttribute('data-key'));
+const onlyRoot = (root, id) => click($(root, `#fmenu-roots .fmenu-row[data-key="${id}"] button.only`));
+const checked = (root, name) => $(root, `input[name="${name}"]`).checked;
+const projectLabels = (root) => [...root.querySelectorAll('.project-label')].map((n) => n.textContent);
+
+test('Conductors comes first, before Projects and Links, and no toolbar text says Trees', async () => {
+  const { root, app } = boot(two());
+  await app.load();
+  const names = [...root.querySelectorAll('.filter-row button.fmenu-btn')].map((b) => b.getAttribute('name'));
+  assert.deepEqual(names, ['filter:roots', 'filter:projects', 'filter:links']);
+  assert.match(summaryOf(root, 'roots'), /^Conductors/);
+  assert.doesNotMatch($(root, '.filter-row').textContent, /Trees/);
+});
+
+test('the Conductors selection narrows the Projects list; All restores it', async () => {
+  const { root, app } = boot(three());
+  await app.load();
+  assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'other', 'third']);
+  onlyRoot(root, 'root');
+  assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'third']);
+  onlyRoot(root, 'root2');
+  assert.deepEqual(listedKeys(root, 'projects'), ['other']);
+  click($(root, '#fmenu-roots button[name="all"]'));
+  assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'other', 'third']);
+});
+
+test('a deselected project hidden by narrowing comes back deselected', async () => {
+  const { root, app } = boot(three());
+  await app.load();
+  setChecked($(root, 'input[name="project:proj"]'), false);
+  assert.equal(summaryOf(root, 'projects'), 'Projects · 2 of 3');
+  onlyRoot(root, 'root2');
+  assert.equal(checked(root, 'project:other'), true);
+  assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 1');
+  click($(root, '#fmenu-roots button[name="all"]'));
+  assert.equal(checked(root, 'project:proj'), false);
+  assert.equal(checked(root, 'project:third'), true);
+  assert.equal(projectLabels(root).includes('proj'), false);
+});
+
+test('Projects None and "only" act on listed projects; hidden selected projects survive', async () => {
+  const { root, app } = boot(three());
+  await app.load();
+  onlyRoot(root, 'root');
+  click($(root, '#fmenu-projects button[name="none"]'));
+  assert.equal(bars(root), 0);
+  assert.match($(root, '.empty-hint').textContent, /project/i);
+  click($(root, '#fmenu-roots button[name="all"]'));
+  assert.equal(checked(root, 'project:other'), true);
+  assert.equal(projectLabels(root).includes('other'), true);
+  assert.equal(checked(root, 'project:proj'), false);
+  assert.equal(checked(root, 'project:third'), false);
+
+  onlyRoot(root, 'root');
+  click($(root, '#fmenu-projects .fmenu-row[data-key="third"] button.only'));
+  click($(root, '#fmenu-roots button[name="all"]'));
+  assert.equal(checked(root, 'project:third'), true);
+  assert.equal(checked(root, 'project:other'), true);
+  assert.equal(checked(root, 'project:proj'), false);
+});
+
+test('Projects collapse to All only when the hidden projects are selected too', async () => {
+  const a = boot(three());
+  await a.app.load();
+  onlyRoot(a.root, 'root');
+  click($(a.root, '#fmenu-projects button[name="none"]'));
+  click($(a.root, '#fmenu-projects button[name="all"]'));
+  click($(a.root, '#fmenu-roots button[name="all"]'));
+  assert.equal(summaryOf(a.root, 'projects'), 'Projects · All');
+
+  const b = boot(three());
+  await b.app.load();
+  setChecked($(b.root, 'input[name="project:other"]'), false);
+  onlyRoot(b.root, 'root');
+  click($(b.root, '#fmenu-projects button[name="all"]'));
+  click($(b.root, '#fmenu-roots button[name="all"]'));
+  assert.equal(summaryOf(b.root, 'projects'), 'Projects · 2 of 3');
+});
+
+test('Projects never narrows the Conductors list', async () => {
+  const { root, app } = boot(two());
+  await app.load();
+  click($(root, '#fmenu-projects .fmenu-row[data-key="proj"] button.only'));
+  assert.deepEqual(listedKeys(root, 'roots'), ['root', 'root2']);
+});
+
+test('Conductors None leaves the Projects list empty with a status and names conductors in the chart hint', async () => {
+  const { root, app } = boot(three());
+  await app.load();
+  click($(root, '#fmenu-roots button[name="none"]'));
+  assert.equal(listedKeys(root, 'projects').length, 0);
+  assert.notEqual($(root, '#fmenu-projects .fmenu-empty').textContent, '');
+  assert.match($(root, '.empty-hint').textContent, /conductor/i);
+  click($(root, '#fmenu-projects button[name="all"]'));
+  click($(root, '#fmenu-projects button[name="none"]'));
+  assert.equal(app.state.filters.projects, null);
 });
 
 // --- axis brush ---

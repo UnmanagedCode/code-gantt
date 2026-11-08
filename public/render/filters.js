@@ -1,5 +1,5 @@
 import { el, listen } from '../lib/dom.js';
-import { dimensionItems, selectedKeys, applySelection, isAll } from '../lib/filterModel.js';
+import { dimensionItems, listedProjects, selectedKeys, applySelection, isAll } from '../lib/filterModel.js';
 import { createFilterMenu } from './filterMenu.js';
 
 export const RANGES = [
@@ -7,13 +7,14 @@ export const RANGES = [
 ];
 
 const MENUS = [
-  { dim: 'projects', label: 'Projects', namePrefix: 'project' },
-  { dim: 'roots', label: 'Trees', namePrefix: 'root' },
+  { dim: 'roots', label: 'Conductors', namePrefix: 'root' },
+  { dim: 'projects', label: 'Projects', namePrefix: 'project', emptyText: 'No projects for the selected conductors.' },
   { dim: 'links', label: 'Links', namePrefix: 'link', grouped: true },
 ];
 
 /**
- * Toolbar built once: range, the Projects/Trees/Links popovers, reset zoom.
+ * Toolbar built once: range, the Conductors/Projects/Links popovers, reset zoom.
+ * The Conductors selection narrows the Projects list; stored Projects selections are never pruned.
  * `update` pushes the current payload and filters in; a menu's selection is written back through filterModel.
  */
 export function createFilterBar(host, h) {
@@ -42,7 +43,8 @@ export function createFilterBar(host, h) {
       filters = nextFilters;
       items = dimensionItems(payload);
       range.value = String(rangeMs);
-      for (const [dim, menu] of menus) menu.update(items[dim], selectedKeys(filters, dim, items[dim]), isAll(filters, dim, items[dim]));
+      const listed = { ...items, projects: listedProjects(payload, filters, items.projects) };
+      for (const [dim, menu] of menus) menu.update(listed[dim], selectedKeys(filters, dim, items[dim]), isAll(filters, dim, items[dim]));
     },
   };
 }

@@ -89,6 +89,8 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 - `state.filters` in `public/app.js` is the only store. `lib/filterModel.js` is the only adapter between it and the popovers/legend.
 - `projects`/`roots`: `null` = All, a `Set` = exactly those keys, an empty `Set` = none (`wants` in `lib/layout.js`). `applySelection` collapses a set covering every current item back to `null`.
+- The `roots` dimension's UI label is set in `MENUS` (`public/render/filters.js`). `listedProjects` narrows what the Projects menu lists; `filters.projects` is never pruned by it. `selectedKeys`/`applySelection` always get the **full** project items: with the listed ones, a set would collapse to `null` and silently select hidden deselected projects. `emptyHint` gives the chart's empty-state text.
+- `filterMenu.js` passes the menu's listed items (not the full set) to `only` in `public/lib/selection.js`; see its docblock for the semantics.
 - Links: an explicit `linkTypes` Set plus the `heartbeat` boolean; `HEARTBEAT_KEY` is the pseudo-item the UI uses for it.
 - `render/filters.js`, `filterMenu.js` and `legend.js` are built once and updated in place, so open state and focus survive renders.
 - `tests/ui/linkGroups.test.mjs` fails when a type in `src/model/linkTypes.js` `LINK_TYPES` is missing from `LINK_GROUPS`.
