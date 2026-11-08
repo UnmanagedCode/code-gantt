@@ -83,13 +83,12 @@ try {
       });
     });
     const near = (dx) => assert.ok(dx != null && Math.abs(dx - 2) <= 0.5, `forward is ~2px right of its send_prompt (got ${dx})`);
-    // the forward is dotted, differently from heartbeat's dashes, and not undashed
+    // the forward is solid (no dasharray), while heartbeat stays dashed
     const dash = (sel) => page.locator(sel).first().evaluate((n) => getComputedStyle(n).strokeDasharray);
     const fwDash = await dash('.link-g[data-type="forward"] .link');
     const hbDash = await dash('.link-g.heartbeat .link');
-    assert.ok(fwDash && fwDash !== 'none', `forward dasharray is set (${fwDash})`);
-    assert.notEqual(fwDash, hbDash, 'forward dots differ from heartbeat dashes');
-    assert.notEqual(hbDash, 'none');
+    assert.ok(['none', ''].includes(fwDash), `forward is solid (dasharray ${fwDash})`);
+    assert.notEqual(hbDash, 'none', `heartbeat stays dashed (${hbDash})`);
     const dx0 = await pairDx();
     assert.equal(dx0.length, 2);
     dx0.forEach(near);

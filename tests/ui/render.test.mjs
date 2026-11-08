@@ -431,7 +431,7 @@ test('legend focus stays on the clicked button; heartbeat follows wake with a do
   const keys = [...root.querySelectorAll('.legend-item')].map((n) => n.getAttribute('data-key'));
   assert.equal(keys[keys.indexOf('wake') + 1], 'heartbeat');
   assert.equal($(root, '.legend-item[data-key="heartbeat"] .swatch').classList.contains('dotted'), true);
-  assert.equal($(root, '.legend-item[data-key="forward"] .swatch').classList.contains('dotted'), true);
+  assert.equal($(root, '.legend-item[data-key="forward"] .swatch').classList.contains('dotted'), false);
   const b = $(root, '.legend-item[data-key="wake"]');
   b.focus();
   click(b);
