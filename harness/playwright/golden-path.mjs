@@ -83,6 +83,13 @@ try {
       });
     });
     const near = (dx) => assert.ok(dx != null && Math.abs(dx - 2) <= 0.5, `forward is ~2px right of its send_prompt (got ${dx})`);
+    // the forward is dotted, differently from heartbeat's dashes, and not undashed
+    const dash = (sel) => page.locator(sel).first().evaluate((n) => getComputedStyle(n).strokeDasharray);
+    const fwDash = await dash('.link-g[data-type="forward"] .link');
+    const hbDash = await dash('.link-g.heartbeat .link');
+    assert.ok(fwDash && fwDash !== 'none', `forward dasharray is set (${fwDash})`);
+    assert.notEqual(fwDash, hbDash, 'forward dots differ from heartbeat dashes');
+    assert.notEqual(hbDash, 'none');
     const dx0 = await pairDx();
     assert.equal(dx0.length, 2);
     dx0.forEach(near);
@@ -91,19 +98,39 @@ try {
     const fwHit = page.locator('.link-g[data-type="forward"] .link-hit').nth(forwards.length - 1 - forwards.indexOf(sameSide)); // forward groups are prepended, so the DOM order is reversed
     await fwHit.scrollIntoViewIfNeeded();
     const fb = await fwHit.boundingBox();
-    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    const fwIndex = forwards.length - 1 - forwards.indexOf(sameSide);
+    // the same-side precondition: both lines start on the same side of their shared target end
+    const sides = await page.evaluate((i) => {
+      const fg = document.querySelectorAll('.link-g[data-type="forward"]')[i];
+      const fe = fg.querySelector('.link-end').getBoundingClientRect();
+      const spg = [...document.querySelectorAll('.link-g[data-type="send_prompt"]')].find((g) => {
+        const e = g.querySelector('.link-end').getBoundingClientRect();
+        return Math.abs(e.y - fe.y) < 1 && Math.abs(e.x - fe.x) < 5;
+      });
+      const ln = (g) => { const l = g.querySelector('.link'); return Math.sign(Number(l.getAttribute('y1')) - Number(l.getAttribute('y2'))); };
+      return spg ? [ln(spg), ln(fg)] : null;
+    }, fwIndex);
+    assert.ok(sides && sides[0] !== 0 && sides[0] === sides[1], `same-side pair: both lines start on one side of the target (${sides})`);
+    // the forward hit is painted beneath its send_prompt: only its exposed right-hand crescent can be reached
+    const crescent = { x: fb.x + fb.width - 0.5, y: fb.y + fb.height / 2 };
+    const reached = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('.link-g')?.getAttribute('data-type'), crescent);
+    assert.equal(reached, 'forward', 'the forward hit target is reachable at its crescent');
+    await page.mouse.move(crescent.x, crescent.y);
     await page.waitForSelector('g.tooltip');
+    assert.equal((await page.locator('g.tooltip text').first().textContent()), 'forward', 'the tooltip is the forward line\'s');
     const tipText = await page.textContent('g.tooltip');
     for (const name of ['Conductor', 'Beta recent worker', 'Beta approx-end worker']) assert.ok(tipText.includes(name), `tooltip names ${name}`);
     await page.screenshot({ path: path.join(shots, '13-forward-pair-tooltip.png'), fullPage: true });
     // zoom in on the pair: the offset stays the same number of pixels
     const axisPre = await page.$eval('.axis', (n) => n.textContent);
-    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.mouse.move(crescent.x, crescent.y);
     await page.keyboard.down('Control');
     for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -200);
     await page.keyboard.up('Control');
     await page.waitForFunction((b) => document.querySelector('.axis').textContent !== b, axisPre);
-    (await pairDx()).filter((d) => d != null).forEach(near);
+    const dxZ = await pairDx();
+    assert.equal(dxZ.length, forwards.length, 'every rendered forward is measured after the zoom');
+    dxZ.forEach(near);
     const fbZ = await fwHit.boundingBox();
     await page.mouse.move(5, 5);
     await page.screenshot({ path: path.join(shots, '13b-forward-pair.png'),

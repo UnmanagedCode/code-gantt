@@ -1123,13 +1123,14 @@ const pairLine = (root, type) => sq(root, `.link-g[data-type="${type}"]`);
 const num = (node, a) => Number(node.getAttribute(a));
 const hoverNode = (node) => node.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 50 }));
 
-test('a forward line sits PAIR_OFFSET_PX right of its send_prompt at every zoom; its dot and hit target follow it', async () => {
+test('a forward line sits PAIR_OFFSET_PX right of its send_prompt at every zoom; the send_prompt marks the event time; dot and hit target follow the forward', async () => {
   const { root, app } = boot(pairPayload());
   await app.load();
   const xs = () => {
     const sp = pairLine(root, 'send_prompt');
     const fw = pairLine(root, 'forward');
-    return { sp: num(sq(sp, '.link'), 'x1'), fw: num(sq(fw, '.link'), 'x1'), dot: num(sq(fw, '.link-end'), 'cx'), hit: num(sq(fw, '.link-hit'), 'cx') };
+    const f = sq(fw, '.link');
+    return { expected: LABEL_W + scaleOf(app).x(4000), sp: num(sq(sp, '.link'), 'x1'), fw: num(f, 'x1'), fw2: num(f, 'x2'), dot: num(sq(fw, '.link-end'), 'cx'), hit: num(sq(fw, '.link-hit'), 'cx') };
   };
   const before = xs();
   wheelAt(sq(root, 'svg.chart'), LABEL_W + 100, { ctrlKey: true });
@@ -1137,8 +1138,10 @@ test('a forward line sits PAIR_OFFSET_PX right of its send_prompt at every zoom;
   assert.notEqual(after.sp, before.sp, 'the zoom moved the lines');
   for (const x of [before, after]) {
     assert.equal(x.fw - x.sp, PAIR_OFFSET_PX);
+    assert.equal(x.fw2, x.fw, 'the forward line is vertical');
     assert.equal(x.dot, x.fw);
     assert.equal(x.hit, x.fw);
+    assert.ok(Math.abs(x.sp - x.expected) < 1e-6, 'the send_prompt sits exactly at the event time');
   }
 });
 
@@ -1146,11 +1149,15 @@ test('hovering either line of a forward pair names sender → target and the for
   const { root, app } = boot(pairPayload());
   await app.load();
   for (const type of ['send_prompt', 'forward']) {
-    hoverNode(pairLine(root, type));
-    const t = sq(root, 'g.tooltip').textContent;
-    assert.ok(t.includes('Conductor → Worker one'), type);
-    assert.ok(t.includes('forwarding Worker two'), type);
-    assert.ok(t.includes(type), type);
+    const g = pairLine(root, type);
+    g.dispatchEvent(new win.MouseEvent('mouseleave', { bubbles: true }));
+    assert.equal(sq(root, 'g.tooltip'), null, 'tooltip cleared before hovering');
+    hoverNode(g);
+    const tip = sq(root, 'g.tooltip');
+    const lines = [...tip.querySelectorAll('text')].map((n) => n.textContent);
+    assert.equal(lines[0], type);
+    assert.equal(lines[1], 'Conductor → Worker one');
+    assert.equal(lines[2], 'forwarding Worker two');
   }
 });
 

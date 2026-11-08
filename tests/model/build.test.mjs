@@ -415,3 +415,18 @@ test('diagnostics carry horizon as ISO and no backfill or cutoff fields', async 
   assert.deepEqual(Object.keys(d.unmatchedStoreRows), ['events']);
   s.cleanup();
 });
+
+test('a window that drops the forward source keeps the send_prompt with its pair intact and has no forward link', async () => {
+  // bbbb2222 starts after the window, so it is absent from the payload
+  const { s, state } = await fixture({
+    events: [
+      ...horizonRows(T0, 'aaaa1111', 'cccc0000'),
+      evCall(T0 + min(15), 'cccc0000', 'aaaa1111', 'send_prompt', { forward: 'bbbb2222' }),
+    ],
+  });
+  const p = buildPayload(state, win);
+  assert.equal(p.sessions.bbbb2222, undefined);
+  assert.deepEqual(p.links.filter((l) => ['send_prompt', 'forward'].includes(l.type)).map((l) => [l.type, l.from, l.to, l.pair]),
+    [['send_prompt', 'cccc0000', 'aaaa1111', { sender: 'cccc0000', source: 'bbbb2222' }]]);
+  s.cleanup();
+});
