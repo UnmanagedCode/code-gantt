@@ -1,3 +1,6 @@
+/** The project whose depth-1 sessions are section leads (the conductor's own workers that drive other projects). */
+export const CONDUCTOR_PROJECT = '.conduct';
+
 const startOf = (rec) => Date.parse(rec.segments?.[0]?.at) || 0;
 
 /**
@@ -5,6 +8,8 @@ const startOf = (rec) => Date.parse(rec.segments?.[0]?.at) || 0;
  * Roots: no `parent`, or a parent absent from the map (orphan). A parent loop is broken at
  * its smallest id (that member becomes an orphan root) and counted.
  * Childless roots are not trees.
+ * Each row carries a `role`: the root is the `conductor`; a depth-1 session in CONDUCTOR_PROJECT is a
+ * section `lead`; everything else is a `worker` (a CONDUCTOR_PROJECT session deeper down included).
  * @param {Map<string, any>} byId
  */
 export function buildForest(byId) {
@@ -46,7 +51,8 @@ export function buildForest(byId) {
     const stack = [[id, 0]]; // iterative: a very deep chain must not overflow the call stack
     while (stack.length) {
       const [cur, depth] = stack.pop();
-      rows.push({ id: cur, depth, project: byId.get(cur).project });
+      const role = depth === 0 ? 'conductor' : depth === 1 && byId.get(cur).project === CONDUCTOR_PROJECT ? 'lead' : 'worker';
+      rows.push({ id: cur, depth, role });
       const list = kids.get(cur) ?? [];
       for (let i = list.length - 1; i >= 0; i--) stack.push([list[i], depth + 1]);
     }
@@ -54,34 +60,4 @@ export function buildForest(byId) {
   }
   trees.sort((a, b) => a.start - b.start || (a.rootId < b.rootId ? -1 : 1));
   return { trees, loops };
-}
-
-/**
- * Groups trees project → tree. A tree's projects are the projects of its descendants; the root
- * only ever appears as a context ancestor. For project P a tree contributes every descendant with
- * project P plus all their ancestors; ancestors (and the root) outside P are `context: true`.
- */
-export function groupByProject(trees) {
-  const groups = new Map();
-  for (const t of trees) {
-    const projects = new Set(t.rows.filter((r) => r.depth > 0).map((r) => r.project).filter(Boolean));
-    for (const project of projects) {
-      const keep = new Set();
-      const stack = [];
-      for (const row of t.rows) {
-        stack.length = row.depth;
-        stack.push(row.id);
-        if (row.depth > 0 && row.project === project) {
-          // walk up only until an ancestor already kept: amortised O(n)
-          for (let i = row.depth; i >= 0 && !keep.has(stack[i]); i--) keep.add(stack[i]);
-        }
-      }
-      const rows = t.rows
-        .filter((r) => keep.has(r.id))
-        .map((r) => ({ id: r.id, depth: r.depth, context: r.depth === 0 || r.project !== project }));
-      if (!groups.has(project)) groups.set(project, []);
-      groups.get(project).push({ rootId: t.rootId, orphan: t.orphan, rows });
-    }
-  }
-  return [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([project, ts]) => ({ project, trees: ts }));
 }

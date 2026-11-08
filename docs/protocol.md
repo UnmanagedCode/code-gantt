@@ -17,7 +17,8 @@ All URLs are relative to the plugin root (cc proxies it under a path prefix). Ev
 
 ```
 { now, window:{from,to}, version, linkTypes:[…],
-  projects:[{ project, trees:[{ rootId, rows:[{id, depth, context}] }] }],
+  conductorProject:'.conduct',
+  trees:[{ rootId, rows:[{id, depth, role:'conductor'|'lead'|'worker'}] }],
   sessions:{ [id]:{ id, title?, project?, worktree?, model?, playbook?, parent?, orphan?,
                     start, end|null, endKind:'exited'|'killed'|'live'|'approx', endReason?,
                     turns:[[s,e]…], turnCount, rotations:[{at,reason}],
@@ -28,10 +29,12 @@ All URLs are relative to the plugin root (cc proxies it under a path prefix). Ev
                 otherVersionRows, corruptLines, treeLoops, missing:[file], errors:[string] } }
 ```
 
+- `trees[].rows` are in depth-first order (children by start); `depth` is the tree depth. `role` is derived in `buildForest` (`src/model/tree.js`); `conductorProject` is the project whose depth-1 sessions are section leads. The client turns this into project bands (`public/lib/grouping.js`).
+- A row is in `trees` when its bar overlaps the window or it has a kept descendant; a tree is in `trees` when a non-root row is kept. Rows kept only as ancestors are label-only when their bar ended before the horizon.
 - `unresolved` counts link endpoints that match no session; `unmatchedStoreRows` counts event-log rows whose session is not in `sessions.json`.
 - `pair:{sender,source}` is on both links of a forwarded call (the tool link, e.g. `send_prompt`, and its `forward` link). The window filter can drop one of them, and `source` may name a session absent from `sessions`.
-- `horizon` is `EventLogReader.horizonTs` as ISO (rule below), or `null`; with `null` the payload has no projects, sessions or links.
-- `window.from` is the requested `from` raised to the horizon. When the requested `to` is before the horizon (or there is no horizon) the payload has no projects, sessions or links and `window` is the requested one; `diagnostics.horizon` is still set when the log has one. For a request with `from <= to` the reported `window.from <= window.to` and no turn is inverted; a caller-supplied `from > to` is not validated and is echoed as given.
+- `horizon` is `EventLogReader.horizonTs` as ISO (rule below), or `null`; with `null` the payload has no trees, sessions or links.
+- `window.from` is the requested `from` raised to the horizon. When the requested `to` is before the horizon (or there is no horizon) the payload has no trees, sessions or links and `window` is the requested one; `diagnostics.horizon` is still set when the log has one. For a request with `from <= to` the reported `window.from <= window.to` and no turn is inverted; a caller-supplied `from > to` is not validated and is echoed as given.
 - `otherVersionRows` counts event-log rows whose `v` is not the one this plugin reads; they are skipped.
 - Times are epoch ms. `end: null` means open-ended (frontend extends to `now`).
 - `linkTypes` is the single catalog (`src/model/linkTypes.js`); the frontend reads it from the payload.

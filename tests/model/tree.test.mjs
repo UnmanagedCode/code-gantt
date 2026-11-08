@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildForest, groupByProject } from '../../src/model/tree.js';
+import { buildForest, CONDUCTOR_PROJECT } from '../../src/model/tree.js';
 import { sess, iso, T0, min } from '../helpers/store.mjs';
 
 const mk = (defs) => new Map(Object.entries(defs).map(([id, d]) => [id, { id, ...sess({ id, ...d }) }]));
@@ -36,25 +36,24 @@ test('a childless root is excluded', () => {
   assert.deepEqual(trees.map((t) => t.rootId), ['r']);
 });
 
-test('a cross-project tree appears under each touched project with context ancestors dimmed', () => {
+test('roles: a root is the conductor; a depth-1 .conduct session is a section lead; every other session is a worker', () => {
   const { trees } = forestOf({
-    r: {},
-    lead: { parent: 'r', project: 'A' },
-    wa: { parent: 'lead', project: 'B' },
-    wb: { parent: 'r', project: 'B' },
-    wc: { parent: 'r', project: 'A' },
+    r: { project: 'rootproj' },
+    lead: { parent: 'r', project: CONDUCTOR_PROJECT },
+    w: { parent: 'lead', project: 'p' },
+    deepConduct: { parent: 'w', project: CONDUCTOR_PROJECT },
+    direct: { parent: 'r', project: 'p' },
+    kid: { parent: 'direct', project: 'q' },
   });
-  const groups = groupByProject(trees);
-  assert.deepEqual(groups.map((g) => g.project), ['A', 'B']);
-  const rowsOf = (g) => g.trees[0].rows.map((x) => [x.id, x.depth, x.context]);
-  assert.deepEqual(rowsOf(groups[0]), [['r', 0, true], ['lead', 1, false], ['wc', 1, false]]);
-  assert.deepEqual(rowsOf(groups[1]), [['r', 0, true], ['lead', 1, true], ['wa', 2, false], ['wb', 1, false]]);
+  const roleOf = Object.fromEntries(trees[0].rows.map((x) => [x.id, x.role]));
+  assert.deepEqual(roleOf, { r: 'conductor', lead: 'lead', w: 'worker', deepConduct: 'worker', direct: 'worker', kid: 'worker' });
 });
 
-test('a root is never a group of its own, even when the root record carries a project', () => {
-  const { trees } = forestOf({ r: { project: 'rootproj' }, k: { parent: 'r', project: 'p' } });
-  const groups = groupByProject(trees);
-  assert.deepEqual(groups.map((g) => g.project), ['p']);
+test('roles: a depth-1 non-.conduct session with children is a worker; an orphan root with a .conduct child has a lead', () => {
+  const a = forestOf({ r: {}, w: { parent: 'r', project: 'p' }, c: { parent: 'w', project: 'q' } }).trees[0];
+  assert.equal(a.rows.find((x) => x.id === 'w').role, 'worker');
+  const b = forestOf({ o: { parent: 'gone', project: 'p' }, l: { parent: 'o', project: CONDUCTOR_PROJECT } }).trees[0];
+  assert.deepEqual(b.rows.map((x) => [x.id, x.role]), [['o', 'conductor'], ['l', 'lead']]);
 });
 
 test('a parent loop terminates and is counted', () => {
@@ -64,19 +63,10 @@ test('a parent loop terminates and is counted', () => {
   assert.equal(trees[0].rows.length, 2);
 });
 
-test('C2: an orphan lead in alpha with a child in beta yields only a beta group; the lead is context there', () => {
-  const { trees } = forestOf({ lead: { parent: 'gone', project: 'alpha' }, kid: { parent: 'lead', project: 'beta' } });
-  const groups = groupByProject(trees);
-  assert.deepEqual(groups.map((g) => g.project), ['beta']);
-  assert.deepEqual(groups[0].trees[0].rows.map((r) => [r.id, r.context]), [['lead', true], ['kid', false]]);
-});
-
-test('S7: a 20k-deep parent chain builds and groups without overflowing the stack', () => {
+test('S7: a 20k-deep parent chain builds without overflowing the stack', () => {
   const defs = { n0: {} };
   for (let i = 1; i < 20_000; i++) defs[`n${i}`] = { parent: `n${i - 1}`, project: 'p' };
   const { trees } = forestOf(defs);
   assert.equal(trees[0].rows.length, 20_000);
   assert.equal(trees[0].rows.at(-1).depth, 19_999);
-  const groups = groupByProject(trees);
-  assert.equal(groups[0].trees[0].rows.length, 20_000);
 });

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BROWSER } from './resolve.mjs';
+import { applyFilters, defaultFilters } from '../../public/lib/layout.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../..');
@@ -26,7 +27,7 @@ if (!projectsRoot) throw new Error('CC_PROJECTS_ROOT is not set');
 
 const { bootServer, withPage } = await import(BROWSER);
 const SESSION_KEYS = new Set(['id', 'title', 'project', 'worktree', 'model', 'playbook', 'parent', 'orphan', 'start', 'end', 'endKind', 'endReason', 'turns', 'turnCount', 'rotations', 'stages', 'marks']);
-const LINK_KEYS = new Set(['ts', 'type', 'from', 'to', 'heartbeat']);
+const LINK_KEYS = new Set(['ts', 'type', 'from', 'to', 'heartbeat', 'pair']);
 
 let srv;
 try {
@@ -43,14 +44,21 @@ try {
   const horizonMs = Date.parse(horizon);
 
   const wide = await get(`?from=${Date.now() - 30 * 86400_000}&to=${Date.now()}`);
-  assert.ok(wide.projects.length >= 1, 'at least one project group');
+  assert.ok(wide.trees.length >= 1, 'at least one tree');
   assert.equal(wide.window.from, horizonMs, 'a window before the horizon is clamped to it');
   assert.ok(wide.links.every((l) => l.ts >= horizonMs), 'every link is at or after the horizon');
   for (const p of [payload, wide]) {
     for (const s of Object.values(p.sessions)) assert.deepEqual(Object.keys(s).filter((k) => !SESSION_KEYS.has(k)), [], 'session keys');
     for (const l of p.links) assert.deepEqual(Object.keys(l).filter((k) => !LINK_KEYS.has(k)), [], 'link keys');
   }
-  console.log(`30d window: ${wide.projects.length} projects, ${Object.keys(wide.sessions).length} sessions, ${wide.links.length} links; diagnostics ${JSON.stringify(wide.diagnostics)}`);
+  // Links are drawn inside one band; a link whose ends share no band is stubs, never a line across bands.
+  const layout = applyFilters(wide, defaultFilters(wide));
+  const bands = layout.rows.filter((r) => r.kind === 'band').map((r) => r.y);
+  const bandOf = (y) => bands.filter((b) => b <= y).length - 1;
+  for (const l of layout.links) assert.equal(bandOf(l.y1), bandOf(l.y2), `link ${l.type} ${l.from}→${l.to} spans two bands`);
+  const crossForwards = layout.stubs.filter((s) => s.type === 'forward' && s.end === 'source').length;
+  console.log(`layout: ${bands.length} bands, ${layout.links.length} links drawn, ${layout.stubs.length / 2} cross-band links as stubs (${crossForwards} forwards)`);
+  console.log(`30d window: ${wide.trees.length} trees, ${Object.keys(wide.sessions).length} sessions, ${wide.links.length} links; diagnostics ${JSON.stringify(wide.diagnostics)}`);
 
   await withPage(async (page) => {
     await page.goto(srv.url);

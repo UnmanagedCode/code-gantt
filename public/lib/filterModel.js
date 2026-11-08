@@ -1,14 +1,16 @@
 // Pure adapter between `state.filters` (the only store) and the per-dimension key sets the filter UI works with.
 // Dimension ids: 'projects' | 'roots' | 'links'. The 'roots' dimension is the Conductors filter (a tree is keyed by its root, the conductor).
 import { labelOf } from './format.js';
+import { treeProjects, sortProjects, projectLabel } from './grouping.js';
 
 /** Pseudo-item for heartbeat wakes in the links dimension (not a link type). */
 export const HEARTBEAT_KEY = 'heartbeat';
 
 export function dimensionItems(payload) {
-  const roots = [...new Set(payload.projects.flatMap((g) => g.trees.map((t) => t.rootId)))];
+  const roots = payload.trees.map((t) => t.rootId);
+  const projects = sortProjects(new Set([...treeProjects(payload).values()].flatMap((set) => [...set])), payload.conductorProject);
   return {
-    projects: payload.projects.map((g) => ({ key: g.project, label: g.project })),
+    projects: projects.map((p) => ({ key: p, label: projectLabel(p, payload.conductorProject) })),
     roots: roots.map((r) => ({ key: r, label: labelOf(payload.sessions[r]) })),
     links: [...payload.linkTypes.map((t) => ({ key: t, label: t })), { key: HEARTBEAT_KEY, label: 'wake heartbeat' }],
   };
@@ -39,8 +41,8 @@ export function applySelection(filters, dim, items, set) {
 /** Projects the Projects menu lists: all of them under Conductors All, else those with a tree whose root is selected. */
 export function listedProjects(payload, filters, projectItems) {
   if (filters.roots == null) return projectItems;
-  const touched = new Set(payload.projects
-    .filter((g) => g.trees.some((t) => filters.roots.has(t.rootId))).map((g) => g.project));
+  const touched = new Set();
+  for (const [rootId, set] of treeProjects(payload)) if (filters.roots.has(rootId)) for (const p of set) touched.add(p);
   return projectItems.filter((i) => touched.has(i.key));
 }
 
