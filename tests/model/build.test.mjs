@@ -289,7 +289,7 @@ test('a bar spanning the horizon is clipped: start = horizon, the stage held is 
 });
 
 // P3: the sweep. Nothing before H is drawn for a row that overlaps H (a label-only ancestor draws nothing), whatever window is asked for.
-test('nothing before the horizon is drawn: for every non-context session the start, marks, rotations, stage froms and turn starts, and every link ts, are >= horizon; window.from is clamped to it', async () => {
+test('nothing before the horizon is drawn: for every row that draws from the horizon the start, marks, rotations, stage froms and turn starts, and every link ts, are >= horizon; window.from is clamped to it', async () => {
   const { s, state, p } = await horizonStore();
   assert.equal(p.window.from, H);
   const drawn = new Set(p.trees.flatMap((t) => t.rows.filter((r) => r.depth > 0 && drawsFrom(r.id, p)).map((r) => r.id)));
@@ -471,10 +471,10 @@ test('a label-only ancestor that ended before the horizon draws nothing', async 
 test('trees are ordered by root start, whatever the order or ids in sessions.json', async () => {
   const s = makeStore({
     sessions: {
-      zzzz0002: sess({ id: 'zzzz0002', at: iso(T0 + min(5)) }),
-      zzzz0003: sess({ id: 'zzzz0003', parent: 'zzzz0002', project: 'p', conducted: true, at: iso(T0 + min(6)) }),
       aaaa0002: sess({ id: 'aaaa0002', at: iso(T0 + min(50)) }),
       aaaa0003: sess({ id: 'aaaa0003', parent: 'aaaa0002', project: 'p', conducted: true, at: iso(T0 + min(51)) }),
+      zzzz0002: sess({ id: 'zzzz0002', at: iso(T0 + min(5)) }),
+      zzzz0003: sess({ id: 'zzzz0003', parent: 'zzzz0002', project: 'p', conducted: true, at: iso(T0 + min(6)) }),
     },
     events: horizonRows(T0, 'zzzz0003', 'zzzz0002'),
   });

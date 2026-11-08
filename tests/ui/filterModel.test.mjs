@@ -166,3 +166,15 @@ test('emptyHint names the empty filter and falls back to a generic text; the thr
   assert.equal(hint({ projects: new Set() }), projects);
   assert.equal(new Set([conductors, projects, generic]).size, 3);
 });
+
+test('the Projects menu lists exactly the bands groupRows emits, including a Conductor band held up by a lead that does not overlap', () => {
+  const p = {
+    now: 3000, window: { from: 1000, to: 2000 }, linkTypes: [], conductorProject: '.conduct', links: [],
+    trees: [{ rootId: 'c', rows: [{ id: 'c', depth: 0, role: 'conductor' }, { id: 'l', depth: 1, role: 'lead' }, { id: 'w', depth: 2, role: 'worker' }] }],
+    sessions: { c: S('c', { start: 0, end: 3000 }), l: S('l', { project: '.conduct', start: 100, end: 200 }), w: S('w', { project: 'alpha', start: 1300, end: 1400 }) },
+  };
+  const bands = applyFilters(p, defaultFilters(p)).rows.filter((r) => r.kind === 'band').map((r) => r.project);
+  assert.deepEqual(bands, ['.conduct', 'alpha']);
+  assert.deepEqual(dimensionItems(p).projects.map((i) => i.key), bands);
+  assert.deepEqual(listedProjects(p, { ...defaultFilters(p), roots: new Set(['c']) }, dimensionItems(p).projects).map((i) => i.key), bands);
+});

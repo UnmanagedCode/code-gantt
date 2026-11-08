@@ -18,15 +18,20 @@ export const sortProjects = (projects, conductorProject) =>
 
 const overlapsAt = (s, from, to, now) => s.start <= to && (s.end ?? now) >= from;
 
-/** rootId → Set of projects of the tree's non-root rows that overlap the payload window. */
+/** rootId → Set of projects of the tree's non-root rows that overlap the payload window, plus a lead's own project while a worker below it overlaps (the bands `groupRows` emits). */
 export function treeProjects(payload) {
   const { from, to } = payload.window;
   const out = new Map();
   for (const t of payload.trees) {
     const set = new Set();
+    let lead = null; // the depth-1 lead whose subtree the current row is in
     for (const r of t.rows) {
       const s = payload.sessions[r.id];
-      if (r.depth > 0 && s.project && overlapsAt(s, from, to, payload.now)) set.add(s.project);
+      if (r.depth === 1) lead = r.role === 'lead' ? s : null;
+      if (r.depth > 0 && s.project && overlapsAt(s, from, to, payload.now)) {
+        set.add(s.project);
+        if (r.depth > 1 && lead?.project) set.add(lead.project);
+      }
     }
     out.set(t.rootId, set);
   }
