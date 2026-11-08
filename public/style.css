@@ -80,6 +80,9 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .plot-bg { fill: transparent; cursor: grab; }
 .axis-hit { fill: transparent; cursor: crosshair; touch-action: none; }
 .brush-band { fill: color-mix(in oklab, var(--primary) 18%, transparent); stroke: var(--primary); stroke-width: 1; pointer-events: none; }
+.crosshair-line { stroke: var(--muted-foreground); stroke-width: 1; stroke-dasharray: 1 3; pointer-events: none; }
+.crosshair-readout rect { fill: var(--foreground); }
+.crosshair-readout text { fill: var(--background); font-variant-numeric: tabular-nums; }
 .project-band { fill: var(--muted); }
 .project-label { font-weight: 600; }
 .stripe { fill: transparent; }

@@ -13,7 +13,7 @@
 | `src/live.js` | `createLive`: store-stat poll, `/ws` hint, liveness fetch; network, timers injectable. |
 | `src/http/app.js` | `createApp`: routes, static allowlist, security headers, SSE client cap. |
 | `src/serial.js` | `createSerializer`: one-at-a-time async queue. |
-| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart` (the chart frame), `brush`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
+| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart` (the chart frame), `brush`, `crosshair`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
 | `harness/playwright/` | `golden-path.mjs`, `real-store.mjs`, `fixture-store.mjs`, `resolve.mjs`. |
 
 ## Data flow
@@ -106,7 +106,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 ## Tests
 
-`npm test` runs `node --test` over `tests/**/*.test.mjs`, clearing the cc env vars first.
+`npm test` runs `node --test` over `tests/**/*.test.mjs`, clearing the cc env vars first and pinning `TZ=Asia/Kolkata` (a non-UTC zone, so tests of local-time formatting such as tick labels and the crosshair readout distinguish `getHours` from `getUTCHours`).
 
 - **Fixture store:** `tests/helpers/store.mjs` `makeStore` builds a fresh temp store; config is injected. `horizonRows(ts, worker, conductor)` emits the wake and turn rows that open the horizon. Its `evCall`/`evSession`/`evTurn`/`evWake`/`evConfig` builders emit rows shaped per cc `docs/event-log.md`.
 - **Sentinel:** `tests/helpers/sentinel.mjs` `PROMPT_SENTINEL` sits in unknown row fields; payload and DOM must not contain it.
@@ -126,10 +126,11 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 |---|---|---|
 | `.chart-scale-box` > `svg.chart-scale` | box persistent, svg rebuilt | `rect.axis-bg`, `g.axis`, `rect.axis-hit` (the brush capture target) |
 | `.chart-scroll` > `svg.chart` (+ `p.empty-hint`) | scroller persistent, children rebuilt | labels, stripes, grid, bars, links |
-| `svg.chart-overlay` | persistent, children cleared each render | brush band (`y=0`, `height="100%"`), tooltip; the place for pointer-following marks |
+| `svg.chart-overlay` | persistent, children cleared each render | brush band (`y=0`, `height="100%"`), tooltip, crosshair (`g.crosshair`); the place for pointer-following marks |
 
 - Both svgs get the same `width` and `X = LABEL_W + scale.x(t)`, so ticks and grid align. `width` is `scroller.clientWidth` (scrollbar excluded); `scrollbar-gutter: stable` keeps it from jumping when overflow starts or stops.
 - `render` saves `scroller.scrollTop` and restores it after swapping the children; CSS sets `overflow-anchor: none`.
 - Wheel routing is per svg: `svg.chart-scale` always zooms; `svg.chart` zooms only with Ctrl/⌘ and otherwise scrolls natively.
 - The page itself never scrolls (`body` is a fixed-height flex column); `.chart-host` and `#details` are capped with `max-height: 100%`.
+- `createCrosshair` (`public/render/crosshair.js`) is persistent and created in `createChart`. Hover is tracked by host-level `pointermove`/`pointerleave` (a replaced svg gets no leave) and matched against the current `axis-hit`; `renderFrame` calls `update` after swapping the scale svg, so the crosshair redraws at the remembered pointer. A capture-phase `pointerup` on the host clears the hover before a brush commit renders.
 - Limitation: browsers without `scrollbar-gutter` (Safari before 18.2) may clip a classic scrollbar's width off the right padding.

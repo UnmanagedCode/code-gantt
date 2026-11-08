@@ -24,7 +24,7 @@ Contracts: [docs/protocol.md](docs/protocol.md). Internals: [docs/architecture.m
 | Command | Purpose |
 |---|---|
 | `npm start` | Serve on `$PORT` (default 7300, loopback). Needs `PROJECTS_ROOT`; exits non-zero without it. |
-| `npm test` | Full suite against fixture stores only (clears the cc env vars first). |
+| `npm test` | Full suite against fixture stores only (clears the cc env vars first; pins `TZ=Asia/Kolkata` so local-time assertions differ from UTC). |
 | `npm run harness` | Playwright golden path on a synthetic store; screenshots in `harness/playwright/screenshots/`. |
 | `npm run harness:real` | Renders the real store read-only; needs `CC_PROJECTS_ROOT`. |
 

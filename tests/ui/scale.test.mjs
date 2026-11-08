@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timeScale, zoomAt, pan, ticks, brushView, brushSpan, BRUSH_MIN_PX, MIN_SPAN_MS } from '../../public/lib/scale.js';
+import { timeScale, zoomAt, pan, ticks, readout, READOUT_SECONDS_MS_PER_PX, brushView, brushSpan, BRUSH_MIN_PX, MIN_SPAN_MS } from '../../public/lib/scale.js';
 
 const bounds = { from: 0, to: 1_000_000 };
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} !~ ${b}`);
@@ -118,4 +118,29 @@ test('brushView clamps times exactly at a bound when the view extends past it', 
   const l = brushView(s, 0, 100, bounds);
   assert.equal(l.from, bounds.from);
   assert.equal(l.to - l.from, MIN_SPAN_MS);
+});
+
+test('readout shows seconds iff one pixel spans at most READOUT_SECONDS_MS_PER_PX', () => {
+  const t0 = new Date(2026, 0, 5, 13, 7, 9).getTime();
+  const at = (spanMs) => readout(timeScale(t0, t0 + spanMs, 836), t0);
+  const edge = READOUT_SECONDS_MS_PER_PX * 836;
+  assert.match(at(edge), /^\d\d-\d\d \d\d:\d\d:\d\d$/);
+  assert.match(at(edge + 1), /^\d\d-\d\d \d\d:\d\d$/);
+});
+
+test('readout digits are the local date fields of the time', () => {
+  const t = new Date(2026, 10, 8, 3, 4, 5).getTime();
+  assert.equal(readout(timeScale(t, t + 60_000, 836), t), '11-08 03:04:05');
+  assert.equal(readout(timeScale(t, t + 86_400_000, 836), t), '11-08 03:04');
+});
+
+test('tick labels: daily steps show MM-DD, sub-day steps HH:MM except at local midnight which shows MM-DD', () => {
+  const labels = (from, to) => ticks(timeScale(from, to, 900)).map((t) => t.label);
+  const day = new Date(2026, 0, 5, 0, 0, 0).getTime();
+  const days = labels(day, day + 14 * 86_400_000);
+  assert.ok(days.length > 1 && days.every((l) => /^\d\d-\d\d$/.test(l)));
+  assert.equal(days[0], '01-05');
+  assert.deepEqual(labels(day, day + 86_400_000), ['01-05', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '01-06']);
+  const hour = new Date(2026, 0, 5, 13, 0, 0).getTime();
+  assert.deepEqual(labels(hour, hour + 3_600_000), ['13:00', '13:15', '13:30', '13:45', '14:00']);
 });

@@ -10,7 +10,7 @@ globalThis.window = win;
 const { el, svgEl } = await import('../../public/lib/dom.js');
 const { mount } = await import('../../public/app.js');
 const { LABEL_W } = await import('../../public/render/chart.js');
-const { brushView, timeScale } = await import('../../public/lib/scale.js');
+const { brushView, timeScale, readout } = await import('../../public/lib/scale.js');
 
 const EVIL = '<img src=x onerror=alert(1)>';
 const EVIL2 = '"><script>x</script>';
@@ -849,10 +849,155 @@ test('the chart width comes from the scroller clientWidth', async () => {
   assert.equal(sq(root, 'svg.chart-scale').getAttribute('width'), '900');
 });
 
-test('tooltips stay in the accessibility tree; only the brush band is hidden', async () => {
+test('the overlay and tooltips stay in the accessibility tree; the brush band and crosshair are hidden', async () => {
   const { root, app } = boot(payload());
   await app.load();
   assert.equal(sq(root, '.chart-overlay').hasAttribute('aria-hidden'), false);
   drag(root, 100, 300);
   assert.equal(sq(root, '.brush-band').getAttribute('aria-hidden'), 'true');
+  assert.equal(cross(root).getAttribute('aria-hidden'), 'true');
+  escape();
+});
+
+const cross = (root) => root.querySelector('.chart-overlay g.crosshair');
+const crossX = (root) => Number(cross(root).querySelector('line').getAttribute('x1'));
+const crossText = (root) => cross(root).querySelector('text').textContent;
+const leave = (root) => sq(root, '.chart-host').dispatchEvent(new win.PointerEvent('pointerleave'));
+const hover = (root, x) => ptr(hitOf(root), 'pointermove', LABEL_W + x);
+const scaleOf = (app) => { const v = app.state.view ?? app.state.payload.window; return timeScale(v.from, v.to, 836); };
+
+test('hovering the time scale draws a crosshair line spanning the overlay and a readout of the hovered time', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  hover(root, 200);
+  const g = cross(root);
+  assert.equal(root.querySelectorAll('.chart-overlay g.crosshair').length, 1);
+  assert.equal(g.getAttribute('aria-hidden'), 'true');
+  const line = g.querySelector('line');
+  assert.equal(line.getAttribute('x1'), String(LABEL_W + 200));
+  assert.equal(line.getAttribute('x2'), line.getAttribute('x1'));
+  assert.equal(line.getAttribute('y1'), '0');
+  assert.equal(line.getAttribute('y2'), '100%');
+  const sc = scaleOf(app);
+  assert.equal(crossText(root), readout(sc, sc.invert(200)));
+  assert.match(crossText(root), /^\d\d-\d\d \d\d:\d\d:\d\d$/);
+});
+
+test('the crosshair disappears when the pointer leaves the time scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  hover(root, 200);
+  leave(root);
+  assert.equal(cross(root), null);
+  hover(root, 200);
+  ptr(sq(root, 'svg.chart'), 'pointermove', LABEL_W + 200);
+  assert.equal(cross(root), null);
+});
+
+test('no crosshair over the label column of the time scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  ptr(sq(root, '.axis-bg'), 'pointermove', 100);
+  ptr(sq(root, 'svg.chart-scale'), 'pointermove', 100);
+  assert.equal(cross(root), null);
+});
+
+test('during a brush drag the crosshair follows the pointer, clamped to the plot', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  assert.equal(bands(root), 1);
+  assert.equal(crossX(root), LABEL_W + 300);
+  ptr(hitOf(root), 'pointermove', 10);
+  assert.equal(crossX(root), LABEL_W);
+  ptr(hitOf(root), 'pointermove', LABEL_W + 2000);
+  assert.equal(crossX(root), LABEL_W + 836);
+  escape();
+});
+
+test('committing a brush zooms and hides the crosshair until the next move', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const before = app.state.payload.window;
+  drag(root, 100, 300);
+  ptr(hitOf(root), 'pointerup', LABEL_W + 300);
+  const v = app.state.view;
+  assert.ok(v.to - v.from < before.to - before.from);
+  assert.equal(bands(root), 0);
+  assert.equal(cross(root), null);
+  hover(root, 50);
+  const sc = timeScale(v.from, v.to, 836);
+  assert.equal(crossText(root), readout(sc, sc.invert(50)));
+});
+
+test('Escape aborts the brush and leaves no band while the crosshair stays with the pointer', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  escape();
+  assert.equal(app.state.view, null);
+  assert.equal(bands(root), 0);
+  assert.equal(crossX(root), LABEL_W + 300);
+});
+
+test('a re-render while hovering keeps the crosshair at the pointer with the new scale', async () => {
+  const p = payload();
+  const { root, app } = boot(p);
+  await app.load();
+  hover(root, 200);
+  const first = crossText(root);
+  p.window = { from: 5000, to: 15_000 };
+  await app.load();
+  assert.equal(crossX(root), LABEL_W + 200);
+  const shifted = scaleOf(app);
+  assert.equal(crossText(root), readout(shifted, shifted.invert(200)));
+  assert.notEqual(crossText(root), first);
+  // zoom around a pixel far from the hovered one: the readout there changes with the scale
+  hover(root, 800);
+  const before = crossText(root);
+  wheelAt(sq(root, 'svg.chart-scale'), LABEL_W + 400);
+  const sc = scaleOf(app);
+  assert.ok(app.state.view);
+  assert.equal(crossX(root), LABEL_W + 800);
+  assert.equal(crossText(root), readout(sc, sc.invert(800)));
+  assert.notEqual(crossText(root), before);
+});
+
+test('the readout pill sits right of the line, and flips left of it near the right edge, inside the scale', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const pill = () => { const r = cross(root).querySelector('.crosshair-readout rect'); return [Number(r.getAttribute('x')), Number(r.getAttribute('width'))]; };
+  const width = Number(sq(root, 'svg.chart-scale').getAttribute('width'));
+  hover(root, 200);
+  let [x, w] = pill();
+  assert.ok(x > LABEL_W + 200 && x + w <= width);
+  hover(root, 700);
+  [x, w] = pill();
+  assert.ok(x > LABEL_W + 700 && x + w <= width, 'mid-plot still sits right of the line');
+  hover(root, 830);
+  [x, w] = pill();
+  assert.ok(x + w <= LABEL_W + 830 && x >= 0 && x + w <= width);
+});
+
+test('a cancelled press clears the crosshair, and the brush with it', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  drag(root, 100, 300);
+  assert.ok(cross(root));
+  ptr(hitOf(root), 'pointercancel', LABEL_W + 300);
+  assert.equal(bands(root), 0);
+  assert.equal(cross(root), null);
+  hover(root, 50);
+  ptr(hitOf(root), 'pointercancel', LABEL_W + 50);
+  assert.equal(cross(root), null);
+});
+
+test('the crosshair sits in the overlay regardless of the rows scroll offset', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  sq(root, '.chart-scroll').scrollTop = 120;
+  hover(root, 200);
+  assert.equal(cross(root).parentElement, sq(root, '.chart-overlay'));
+  assert.equal(sq(root, '.chart-scroll g.crosshair'), null);
+  assert.equal(cross(root).querySelector('line').getAttribute('y1'), '0');
 });

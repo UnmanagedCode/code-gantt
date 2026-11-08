@@ -61,6 +61,19 @@ const STEPS = [1, 5, 15, 30].map((s) => s * 1000)
 
 const pad = (n) => String(n).padStart(2, '0');
 
+const md = (d) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** Readout seconds are shown once one plot pixel spans at most this many ms. */
+export const READOUT_SECONDS_MS_PER_PX = 1000;
+
+/** Local `MM-DD HH:MM` of time `t`, plus `:SS` when the scale resolves seconds. */
+export function readout(scale, t) {
+  const d = new Date(t);
+  const sec = (scale.to - scale.from) / scale.width <= READOUT_SECONDS_MS_PER_PX ? `:${pad(d.getSeconds())}` : '';
+  return `${md(d)} ${hm(d)}${sec}`;
+}
+
 /** Nice ticks (about `target`), aligned to local time. */
 export function ticks(scale, target = 8) {
   const span = scale.to - scale.from;
@@ -69,11 +82,7 @@ export function ticks(scale, target = 8) {
   const out = [];
   for (let t = Math.ceil((scale.from - off) / step) * step + off; t <= scale.to; t += step) {
     const d = new Date(t);
-    const label = step >= 86_400_000
-      ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-      : step >= 3_600_000 && d.getHours() === 0 && d.getMinutes() === 0
-        ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-        : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const label = step >= 86_400_000 || (step >= 3_600_000 && d.getHours() === 0 && d.getMinutes() === 0) ? md(d) : hm(d);
     out.push({ t, label });
   }
   return out;
