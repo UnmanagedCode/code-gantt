@@ -108,3 +108,14 @@ test('brushSpan clamps and orders pixels', () => {
   assert.deepEqual(brushSpan(s, 700, -20), { lo: 0, hi: 500 });
   assert.deepEqual(brushSpan(s, 300, 100), { lo: 100, hi: 300 });
 });
+
+test('brushView clamps times exactly at a bound when the view extends past it', () => {
+  // 4000 ms per px; px 400..500 maps wholly beyond bounds.to, px 0..100 wholly before bounds.from.
+  const s = timeScale(-500_000, 1_500_000, 500);
+  const r = brushView(s, 400, 500, bounds);
+  assert.equal(r.to, bounds.to);
+  assert.equal(r.to - r.from, MIN_SPAN_MS);
+  const l = brushView(s, 0, 100, bounds);
+  assert.equal(l.from, bounds.from);
+  assert.equal(l.to - l.from, MIN_SPAN_MS);
+});
