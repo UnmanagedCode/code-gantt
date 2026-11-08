@@ -68,12 +68,22 @@ try {
     const types = new Set(await page.$$eval('.link-g', (n) => n.map((x) => x.dataset.type)));
     for (const t of ['spawn', 'send_prompt', 'forward', 'wake', 'kill_instance', 'other']) assert.ok(types.has(t), `link type ${t} drawn`);
 
+    await page.click('button[name="filter:links"]');
+    await page.fill('input[name="search:links"]', 'wake');
     await page.uncheck('input[name="link:wake"]');
     await page.uncheck('input[name="heartbeat"]');
     assert.equal(await page.locator('.link-g[data-type="wake"]').count(), 0);
-    await page.screenshot({ path: path.join(shots, '05-wake-off.png'), fullPage: true });
+    assert.equal(await page.isVisible('#fmenu-links'), true, 'popover stays open while toggling');
+    await page.screenshot({ path: path.join(shots, '05-links-popover.png'), fullPage: true });
+    await page.press('input[name="search:links"]', 'Escape');
+    assert.equal(await page.isHidden('#fmenu-links'), true);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('name')), 'filter:links');
+    await page.click('button[name="filter:links"]');
+    await page.fill('input[name="search:links"]', 'wake');
     await page.check('input[name="link:wake"]');
     await page.check('input[name="heartbeat"]');
+    await page.click('h1');
+    assert.equal(await page.isHidden('#fmenu-links'), true, 'click outside closes');
 
     const svgBox = await page.locator('svg.chart').boundingBox();
     const before = await page.$eval('.axis', (n) => n.textContent);
@@ -87,12 +97,32 @@ try {
     await page.screenshot({ path: path.join(shots, '06-zoom-pan.png'), fullPage: true });
     await page.click('button[name="reset-zoom"]');
 
+    await page.click('button[name="filter:projects"]');
     await page.uncheck('input[name="project:beta"]');
     assert.equal(await page.locator('.project-label', { hasText: 'beta' }).count(), 0);
     await page.screenshot({ path: path.join(shots, '07-project-filter.png'), fullPage: true });
     await page.check('input[name="project:beta"]');
+    await page.click('h1');
+    assert.equal(await page.isHidden('#fmenu-projects'), true);
+
+    const legendSend = page.locator('.legend-item[data-key="send_prompt"]');
+    await legendSend.click();
+    assert.equal(await page.locator('.link-g[data-type="send_prompt"]').count(), 0);
+    assert.equal(await legendSend.getAttribute('aria-pressed'), 'false');
+    await page.screenshot({ path: path.join(shots, '07b-legend-muted.png'), fullPage: true });
+    await legendSend.click();
+    assert.ok(await page.locator('.link-g[data-type="send_prompt"]').count() > 0);
+
+    await page.click('button[name="filter:projects"]');
+    await page.click('#fmenu-projects button[name="none"]');
+    assert.equal(await page.locator('.empty-hint').isVisible(), true);
+    await page.screenshot({ path: path.join(shots, '07c-empty-selection.png'), fullPage: true });
+    await page.click('#fmenu-projects button[name="all"]');
+    await page.click('h1');
+    assert.equal(await page.locator('.empty-hint').count(), 0);
 
     await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.click('button[name="filter:links"]');
     await page.screenshot({ path: path.join(shots, '08-dark.png'), fullPage: true });
   }, { headless: true, viewport: { width: 1500, height: 900 } });
 } finally {

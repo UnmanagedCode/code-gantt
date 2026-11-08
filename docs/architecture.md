@@ -13,7 +13,7 @@
 | `src/live.js` | `createLive`: store-stat poll, `/ws` hint, liveness fetch; network, timers injectable. |
 | `src/http/app.js` | `createApp`: routes, static allowlist, security headers, SSE client cap. |
 | `src/serial.js` | `createSerializer`: one-at-a-time async queue. |
-| `public/` | Static frontend: `lib/` (pure `scale`, `layout`; `dom`, `api`, `format`), `render/` (`chart`, `filters`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
+| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
 | `harness/playwright/` | `golden-path.mjs`, `real-store.mjs`, `fixture-store.mjs`, `resolve.mjs`. |
 
 ## Data flow
@@ -84,6 +84,14 @@ Keys that come from files (tool names, event kinds, session ids) are never used 
 ## Live refresh
 
 Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-reads and bumps the version. With `CONDUCTOR_URL` set it connects (receive-only) to `<url>/ws`; a `{t:'instances'}` frame triggers, after a 500 ms debounce, a liveness fetch (`GET /api/instances`; a row is live unless `status` is `exited` or `crashed`) and a refresh. Reconnects back off from 0.5 s to 10 s, including after a failed `connect`. `CONDUCTOR_URL` must be a well-formed http(s) URL, otherwise it is ignored (liveness unavailable). The liveness fetch aborts after 3 s. `server.js` reads the stores and listens first; `Live.start` (liveness, `/ws`, polling) runs afterwards, so a slow or black-holed conductor never delays listening. Without `CONDUCTOR_URL`, or if the fetch fails, liveness is `unavailable`.
+
+## Frontend filter state
+
+- `state.filters` in `public/app.js` is the only store. `lib/filterModel.js` is the only adapter between it and the popovers/legend.
+- `projects`/`roots`: `null` = All, a `Set` = exactly those keys, an empty `Set` = none (`wants` in `lib/layout.js`). `applySelection` collapses a set covering every current item back to `null`.
+- Links: an explicit `linkTypes` Set plus the `heartbeat` boolean; `HEARTBEAT_KEY` is the pseudo-item the UI uses for it.
+- `render/filters.js`, `filterMenu.js` and `legend.js` are built once and updated in place, so open state and focus survive renders.
+- `tests/ui/linkGroups.test.mjs` fails when a type in `src/model/linkTypes.js` `LINK_TYPES` is missing from `LINK_GROUPS`.
 
 ## Frontend security
 

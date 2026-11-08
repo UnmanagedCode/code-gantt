@@ -1,43 +1,48 @@
-import { el, clear, listen } from '../lib/dom.js';
-import { labelOf } from '../lib/format.js';
+import { el, listen } from '../lib/dom.js';
+import { dimensionItems, selectedKeys, applySelection, isAll } from '../lib/filterModel.js';
+import { createFilterMenu } from './filterMenu.js';
 
 export const RANGES = [
   ['6 hours', 6 * 3600_000], ['24 hours', 24 * 3600_000], ['72 hours', 72 * 3600_000], ['7 days', 7 * 86400_000], ['14 days', 14 * 86400_000],
 ];
 
-function checkbox(name, label, checked, onChange, swatchType) {
-  const input = el('input', { type: 'checkbox', name, checked });
-  listen(input, 'change', () => onChange(input.checked));
-  return el('label', { class: 'check' }, input, swatchType ? el('span', { class: 'swatch', 'data-type': swatchType }) : null, label);
-}
+const MENUS = [
+  { dim: 'projects', label: 'Projects', namePrefix: 'project' },
+  { dim: 'roots', label: 'Trees', namePrefix: 'root' },
+  { dim: 'links', label: 'Links', namePrefix: 'link', grouped: true },
+];
 
-/** Toolbar: range, project, tree and link-type filters. Mutates `filters`, then calls h.onChange(). */
-export function renderFilters(host, payload, filters, rangeMs, h) {
-  clear(host);
-  const projects = payload.projects.map((g) => g.project);
-  const roots = [...new Set(payload.projects.flatMap((g) => g.trees.map((t) => t.rootId)))];
-  const toggle = (set, all, v, on) => {
-    const next = new Set(set ?? all);
-    if (on) next.add(v); else next.delete(v);
-    return next.size === all.length ? null : next;
-  };
+/**
+ * Toolbar built once: range, the Projects/Trees/Links popovers, reset zoom.
+ * `update` pushes the current payload and filters in; a menu's selection is written back through filterModel.
+ */
+export function createFilterBar(host, h) {
+  let filters = null;
+  let items = null;
+  const menus = new Map();
+  const closeOthers = (dim) => { for (const [d, m] of menus) if (d !== dim) m.close({ focusButton: false }); };
+  for (const spec of MENUS) {
+    menus.set(spec.dim, createFilterMenu({
+      ...spec,
+      onSelect: (set) => { applySelection(filters, spec.dim, items[spec.dim], set); h.onChange(); },
+      onOpen: () => closeOthers(spec.dim),
+    }));
+  }
 
   const range = el('select', { name: 'range', 'aria-label': 'Date range' },
-    RANGES.map(([label, ms]) => el('option', { value: ms, selected: ms === rangeMs }, `Last ${label}`)));
+    RANGES.map(([label, ms]) => el('option', { value: ms }, `Last ${label}`)));
   listen(range, 'change', () => h.onRange(Number(range.value)));
-
-  host.appendChild(el('div', { class: 'filter-row' },
-    el('label', null, 'Range ', range),
-    el('button', { type: 'button', name: 'reset-zoom' }, 'Reset zoom'),
-  ));
-  const reset = host.querySelector('button[name="reset-zoom"]');
+  const reset = el('button', { type: 'button', name: 'reset-zoom' }, 'Reset zoom');
   listen(reset, 'click', () => h.onResetZoom());
+  host.appendChild(el('div', { class: 'filter-row' },
+    el('label', null, 'Range ', range), ...[...menus.values()].map((m) => m.root), reset));
 
-  host.appendChild(el('fieldset', null, el('legend', null, 'Projects'),
-    projects.map((p) => checkbox(`project:${p}`, p, !filters.projects || filters.projects.has(p), (on) => { filters.projects = toggle(filters.projects, projects, p, on); h.onChange(); }))));
-  host.appendChild(el('fieldset', null, el('legend', null, 'Trees'),
-    roots.map((r) => checkbox(`root:${r}`, labelOf(payload.sessions[r]), !filters.roots || filters.roots.has(r), (on) => { filters.roots = toggle(filters.roots, roots, r, on); h.onChange(); }))));
-  host.appendChild(el('fieldset', null, el('legend', null, 'Links'),
-    payload.linkTypes.map((t) => checkbox(`link:${t}`, t, filters.linkTypes.has(t), (on) => { if (on) filters.linkTypes.add(t); else filters.linkTypes.delete(t); h.onChange(); }, t)),
-    checkbox('heartbeat', 'wake heartbeat', filters.heartbeat, (on) => { filters.heartbeat = on; h.onChange(); }, 'heartbeat')));
+  return {
+    update(payload, nextFilters, rangeMs) {
+      filters = nextFilters;
+      items = dimensionItems(payload);
+      range.value = String(rangeMs);
+      for (const [dim, menu] of menus) menu.update(items[dim], selectedKeys(filters, dim, items[dim]), isAll(filters, dim, items[dim]));
+    },
+  };
 }

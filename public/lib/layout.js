@@ -5,8 +5,8 @@ export const HEADER_H = 24;
 
 export function defaultFilters(payload) {
   return {
-    projects: null, // Set of project names, or null/empty for all
-    roots: null, // Set of tree root ids, or null/empty for all
+    projects: null, // null = all; a Set = exactly these project names (an empty Set = none)
+    roots: null, // null = all; a Set = exactly these tree root ids (an empty Set = none)
     from: payload.window.from,
     to: payload.window.to,
     linkTypes: new Set(payload.linkTypes),
@@ -14,7 +14,7 @@ export function defaultFilters(payload) {
   };
 }
 
-const wants = (set, v) => !set || set.size === 0 || set.has(v);
+const wants = (set, v) => !set || set.has(v);
 
 export function applyFilters(payload, f) {
   const overlaps = (id) => {
