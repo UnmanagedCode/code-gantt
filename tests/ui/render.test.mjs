@@ -828,3 +828,23 @@ test('the empty hint does not accumulate across renders', async () => {
   click($(root, '#fmenu-roots button[name="all"]'));
   assert.equal(root.querySelectorAll('.empty-hint').length, 0);
 });
+
+test('a render writes the saved scrollTop back after swapping the rows', async () => {
+  const { root, app } = boot(payload());
+  await app.load();
+  const scroller = sq(root, '.chart-scroll');
+  scroller.scrollTop = 120;
+  // A browser can reset the offset when the content is swapped; emulate that.
+  const swap = scroller.replaceChildren.bind(scroller);
+  scroller.replaceChildren = (...n) => { swap(...n); scroller.scrollTop = 0; };
+  await app.load();
+  assert.equal(scroller.scrollTop, 120);
+});
+
+test('the chart width comes from the scroller clientWidth', async () => {
+  const { root, app } = boot(payload());
+  Object.defineProperty(sq(root, '.chart-scroll'), 'clientWidth', { value: 900 });
+  await app.load();
+  assert.equal(sq(root, 'svg.chart').getAttribute('width'), '900');
+  assert.equal(sq(root, 'svg.chart-scale').getAttribute('width'), '900');
+});

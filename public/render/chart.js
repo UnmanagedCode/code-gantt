@@ -51,7 +51,7 @@ function barLines(s) {
 export function createChart(host) {
   const scaleBox = el('div', { class: 'chart-scale-box' });
   const scroller = el('div', { class: 'chart-scroll' });
-  const overlay = svgEl('svg', { class: 'chart-overlay', 'aria-hidden': 'true' });
+  const overlay = svgEl('svg', { class: 'chart-overlay' });
   host.append(scaleBox, scroller, overlay);
   return {
     overlay,

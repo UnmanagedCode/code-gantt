@@ -160,7 +160,7 @@ try {
       const x = document.querySelector('line.grid').getBoundingClientRect().x;
       return Math.abs(t.x + t.width / 2 - x);
     });
-    assert.ok(align < 30, 'tick and grid stay horizontally aligned');
+    assert.ok(align <= 1, 'tick and grid stay horizontally aligned');
     await page.screenshot({ path: path.join(shots, '09-scrolled.png'), fullPage: true });
     const topScrolled = (await scrollInfo()).top;
     await page.keyboard.down('Control');
@@ -178,12 +178,25 @@ try {
     assert.ok(Math.abs(band.y - sb.y) <= 2, 'band starts at the scale top');
     assert.ok(Math.abs(band.y + band.height - (hostBox.y + hostBox.height)) <= 4, 'band spans the visible rows');
     await page.screenshot({ path: path.join(shots, '11-scrolled-brush.png'), fullPage: true });
-    await page.mouse.up();
+    const axisBrushBefore = await axisText();
     await page.keyboard.press('Escape');
+    await page.mouse.up();
+    assert.equal(await page.locator('.brush-band').count(), 0, 'Escape aborts the brush');
+    assert.equal(await axisText(), axisBrushBefore, 'aborted brush does not zoom');
     await page.click('button[name="reset-zoom"]');
-    await page.locator('.bar-g').first().click();
-    assert.ok(await page.locator('#details dl').count() > 0, 'details update');
-    assert.equal((await scrollInfo()).top, topScrolled, 'selecting keeps the scroll offset');
+    const target = await page.evaluate(() => {
+      const r = document.querySelector('.chart-scroll').getBoundingClientRect();
+      const bar = [...document.querySelectorAll('.bar-g')].find((g) => {
+        const b = g.getBoundingClientRect();
+        return b.top >= r.top && b.bottom <= r.bottom;
+      });
+      return bar?.getAttribute('data-id') ?? null;
+    });
+    assert.ok(target, 'a bar is fully visible in the scrolled rows');
+    const topBeforeClick = (await scrollInfo()).top;
+    await page.locator(`.bar-g[data-id="${target}"]`).click();
+    assert.match(await page.textContent('#details'), new RegExp(`ID\\s*${target}`), 'details show the clicked bar');
+    assert.equal((await scrollInfo()).top, topBeforeClick, 'selecting keeps the scroll offset');
     await page.setViewportSize({ width: 1500, height: 900 });
 
     await page.evaluate(() => document.documentElement.classList.add('dark'));

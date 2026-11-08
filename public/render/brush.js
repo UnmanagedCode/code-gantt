@@ -37,7 +37,7 @@ export function attachBrush({ layer, hit, scale, bounds, plotX, left, onBrush, o
   listen(hit, 'pointerdown', (e) => {
     if (g || !e.isPrimary || e.button !== 0) return;
     const x = plotX(e);
-    const band = svgEl('rect', { class: 'brush-band', x: left, y: 0, width: 0, height: '100%' });
+    const band = svgEl('rect', { class: 'brush-band', 'aria-hidden': 'true', x: left, y: 0, width: 0, height: '100%' });
     layer.appendChild(band);
     g = { id: e.pointerId, x0: x, x1: x, band };
     hit.setPointerCapture?.(e.pointerId);
