@@ -69,7 +69,7 @@ export function mount(root, api) {
     const layout = applyFilters(p, state.filters);
     chart.render({
       payload: p, layout, scale, width, bounds: bounds(), selectedId: state.selected,
-      emptyHint: p.projects.length > 0 && layout.rows.length === 0 ? emptyHint(p, state.filters) : null,
+      emptyHint: p.trees.length > 0 && layout.rows.length === 0 ? emptyHint(p, state.filters) : null,
       onSelect: (id) => { state.selected = id; hideTooltip(chart.overlay); render(); },
       onHover: (lines, x, y) => showTooltip(chart.overlay, lines, x, y),
       onLeave: () => hideTooltip(chart.overlay),

@@ -20,10 +20,18 @@ export function buildFixture(now = Date.now()) {
     c0000002: sess({ id: 'c0000002', title: 'Old conductor', at: iso(t(46)), backing: 'cb-old' }),
     c0000003: sess({ id: 'c0000003', title: 'Delta conductor', at: iso(t(7)), backing: 'cb-3' }),
     d0000001: sess({ id: 'd0000001', title: 'Delta worker', parent: 'c0000003', project: 'delta', conducted: true, at: iso(t(6)), backing: 'bk-d1' }),
+    // a conductor with two section leads (workers in alpha and beta; one lead without workers) and a direct worker
+    c0000004: sess({ id: 'c0000004', title: 'Leads conductor', project: '.conduct', at: iso(t(21)), backing: 'cb-4' }),
+    '5ec00001': sess({ id: '5ec00001', title: 'Section lead one', parent: 'c0000004', project: '.conduct', conducted: true, at: iso(t(20)), backing: 'bk-s1' }),
+    '5ec00002': sess({ id: '5ec00002', title: 'Section lead two', parent: 'c0000004', project: '.conduct', conducted: true, at: iso(t(19)), backing: 'bk-s2' }),
+    e0000001: sess({ id: 'e0000001', title: 'Lead one alpha worker', parent: '5ec00001', project: 'alpha', conducted: true, at: iso(t(18)), backing: 'bk-e1' }),
+    e0000002: sess({ id: 'e0000002', title: 'Lead one beta worker', parent: '5ec00001', project: 'beta', conducted: true, at: iso(t(17.5)), backing: 'bk-e2' }),
+    e0000003: sess({ id: 'e0000003', title: 'Conductor alpha worker', parent: 'c0000004', project: 'alpha', conducted: true, at: iso(t(17)), backing: 'bk-e3' }),
     a0000006: sess({ id: 'a0000006', title: 'Gamma old worker', parent: 'c0000002', project: 'gamma', conducted: true, at: iso(t(45)), backing: 'bk-6' }),
   };
   const migrated = { type: 'conductor' }; // migrated calls carry no caller
   const C = 'c0000001';
+  const L = 'c0000004';
   const events = [
     evCall(t(66), migrated, '1ead0001', 'spawn_instance', { bind: { playbook: 'split', stage: 'plan' } }),
     evCall(t(64), migrated, 'a0000002', 'spawn_instance', { bind: { playbook: 'classic', stage: 'plan' } }),
@@ -65,6 +73,13 @@ export function buildFixture(now = Date.now()) {
     evCall(t(9.5), C, undefined, 'spawn_instance', { outcome: 'refused' }),
     evCall(t(9), C, 'a0000005', 'approve_plan', { move: { from: 'implement', to: 'review' } }),
     evTurn(t(8), C, 'a0000005', 'start'), // open: runs to the bar end
+    // section leads: conductor → lead (one group), lead → worker, worker → lead (the lead's copy in the worker's group), and a
+    // forward from a worker in alpha to a lead that has no row there (no shared group: two stubs). Events are well over 7px apart.
+    evCall(t(19.5), L, '5ec00001', 'send_prompt'),
+    evCall(t(17.2), '5ec00001', 'e0000001', 'send_prompt'),
+    evCall(t(16.8), '5ec00001', 'e0000002', 'send_prompt'),
+    evWake(t(16.2), 'e0000001', '5ec00001'),
+    evCall(t(15.6), L, '5ec00002', 'send_prompt', { forward: 'e0000003' }),
   ];
   return makeStore({ sessions, events });
 }

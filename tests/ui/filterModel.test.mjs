@@ -7,11 +7,12 @@ const S = (id, extra = {}) => ({ id, start: 100, end: 900, endKind: 'exited', tu
 const payload = () => ({
   now: 10_000, window: { from: 0, to: 10_000 },
   linkTypes: ['spawn', 'send_prompt', 'wake'],
-  projects: [
-    { project: 'A', trees: [{ rootId: 'r', rows: [{ id: 'r', depth: 0, context: true }, { id: 'a1', depth: 1, context: false }] }] },
-    { project: 'B', trees: [{ rootId: 'r2', rows: [{ id: 'r2', depth: 0, context: true }, { id: 'b1', depth: 1, context: false }] }] },
+  conductorProject: '.conduct',
+  trees: [
+    { rootId: 'r', rows: [{ id: 'r', depth: 0, role: 'conductor' }, { id: 'a1', depth: 1, role: 'worker' }] },
+    { rootId: 'r2', rows: [{ id: 'r2', depth: 0, role: 'conductor' }, { id: 'b1', depth: 1, role: 'worker' }] },
   ],
-  sessions: { r: S('r', { title: 'Root' }), a1: S('a1'), r2: S('r2'), b1: S('b1') },
+  sessions: { r: S('r', { title: 'Root' }), a1: S('a1', { project: 'A' }), r2: S('r2'), b1: S('b1', { project: 'B' }) },
   links: [
     { ts: 150, type: 'spawn', from: 'r', to: 'a1' },
     { ts: 160, type: 'send_prompt', from: 'r2', to: 'b1' },
@@ -95,11 +96,18 @@ test('selectedKeys keeps stored keys that are not in the current items', () => {
   assert.equal(selectedKeys(f, 'roots', items.roots).has('gone'), true);
 });
 
-test('dimensionItems lists a root once when it appears under two projects', () => {
+test('the conductor project is listed first and labelled Conductor; projects come from the trees’ non-root rows', () => {
   const p = payload();
-  p.projects[1].trees.push({ rootId: 'r', rows: [{ id: 'r', depth: 0, context: true }] });
-  const keys = dimensionItems(p).roots.map((i) => i.key);
-  assert.deepEqual(keys, ['r', 'r2']);
+  p.trees[1].rows.push({ id: 'l', depth: 1, role: 'lead' });
+  p.sessions.l = S('l', { project: '.conduct' });
+  const items = dimensionItems(p).projects;
+  assert.deepEqual(items.map((i) => [i.key, i.label]), [['.conduct', 'Conductor'], ['A', 'A'], ['B', 'B']]);
+});
+
+test('a project whose only rows are outside the payload window is not listed', () => {
+  const p = payload();
+  p.sessions.b1 = S('b1', { project: 'B', start: 20_000, end: 30_000 });
+  assert.deepEqual(dimensionItems(p).projects.map((i) => i.key), ['A']);
 });
 
 test('isAll: null means All for projects/roots, an explicit Set never does; links go by count', async () => {
@@ -121,12 +129,13 @@ test('isAll: null means All for projects/roots, an explicit Set never does; link
 // r sits under A and C; r2 under B.
 const spanning = () => {
   const p = payload();
-  p.projects.push({ project: 'C', trees: [{ rootId: 'r', rows: [{ id: 'r', depth: 0, context: true }] }] });
+  p.trees[0].rows.push({ id: 'c1', depth: 1, role: 'worker' });
+  p.sessions.c1 = S('c1', { project: 'C' });
   return p;
 };
 const listed = (p, roots) => listedProjects(p, { ...defaultFilters(p), roots }, dimensionItems(p).projects).map((i) => i.key);
 
-test('listedProjects: null roots lists every project; a subset lists the projects its trees touch, in payload order', () => {
+test('listedProjects: null roots lists every project; a subset lists the projects its trees touch, in item order', () => {
   const p = spanning();
   assert.deepEqual(listedProjects(p, defaultFilters(p), dimensionItems(p).projects), dimensionItems(p).projects);
   assert.deepEqual(listed(p, new Set(['r'])), ['A', 'C']);

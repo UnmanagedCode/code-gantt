@@ -1,10 +1,10 @@
 # Code Gantt
 
-A [code-conductor](https://github.com) (cc) plugin that shows conducted session trees as a Gantt chart, grouped **project → tree**. It is for anyone supervising conductors and workers who wants to see *when* sessions ran, how they were driven, and how they relate.
+A [code-conductor](https://github.com) (cc) plugin that shows conducted session trees as a Gantt chart, grouped **project → conductor → section lead → worker**. It is for anyone supervising conductors and workers who wants to see *when* sessions ran, how they were driven, and how they relate.
 
 ## What it shows
 
-- **Rows:** a conductor and its workers (nested leads included), one bar per session. A tree that touches several projects appears under each of them; ancestors outside the group are dimmed.
+- **Rows:** a conductor, its section leads and workers, one bar per session, in project bands (the conductor project is labelled Conductor). Conductor and lead headers repeat in each band their tree touches; copies outside their own project are dimmed. A link between rows in different bands is drawn as a stub at each end.
 - **Bars:** start → end. The end is `exited`, `killed`, `live`, or **approximate** (hatched tail + "approximate end" in tooltip and details). Turn segments, renew/prune rotation markers and playbook stage bands are drawn on the bar.
 - **Links:** typed connectors between sessions at the time of the interaction (spawn, prompts, forwards, plan approve/reject, answers, interrupts, kills, mode/idle-timeout/renew/prune, wakes). Unknown tools show as `other`.
 - **Controls:** date range; Conductors/Projects/Links dropdown filters with search, All/None and "only" (the Conductors selection narrows the Projects list to the projects its trees touch); link types grouped by kind with tri-state group toggles; a clickable link legend that shows/hides a type; `wake heartbeat` is its own item in the Wakes group; an empty Conductors/Projects selection draws nothing (with a hint); Ctrl/⌘+wheel zoom (plain wheel scrolls the rows), drag across the time scale to zoom to an interval, drag pan; click a bar for details.

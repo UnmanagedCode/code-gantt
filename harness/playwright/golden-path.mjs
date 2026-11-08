@@ -70,14 +70,14 @@ try {
 
     // A forwarded send_prompt is a send_prompt link plus a forward link, shifted a fixed number of pixels.
     const forwards = payload.links.filter((l) => l.type === 'forward' && l.pair);
-    assert.equal(forwards.length, 2, 'two forwarded calls');
+    assert.equal(forwards.length, 3, 'three forwarded calls');
     for (const f of forwards) {
       assert.ok(payload.links.some((l) => l.type === 'send_prompt' && l.ts === f.ts && l.to === f.to && JSON.stringify(l.pair) === JSON.stringify(f.pair)), 'forward has its send_prompt partner');
     }
     const pairDx = () => page.evaluate(() => {
       const end = (g) => { const c = g.querySelector('.link-end').getBoundingClientRect(); return { x: c.x + c.width / 2, y: c.y + c.height / 2 }; };
       const sps = [...document.querySelectorAll('.link-g[data-type="send_prompt"]')].map(end);
-      return [...document.querySelectorAll('.link-g[data-type="forward"]')].map(end).map((f) => {
+      return [...document.querySelectorAll('.link-g[data-type="forward"]')].filter((g) => g.querySelector('.link-end')).map(end).map((f) => {
         const sp = sps.find((p) => Math.abs(p.y - f.y) < 1 && Math.abs(p.x - f.x) < 5);
         return sp ? f.x - sp.x : null;
       });
@@ -89,18 +89,19 @@ try {
     const hbDash = await dash('.link-g.heartbeat .link');
     assert.ok(['none', ''].includes(fwDash), `forward is solid (dasharray ${fwDash})`);
     assert.notEqual(hbDash, 'none', `heartbeat stays dashed (${hbDash})`);
+    // a forward whose ends share a group is a line; one whose ends do not is two stubs. Each ends in a target dot beside its send_prompt's.
     const dx0 = await pairDx();
-    assert.equal(dx0.length, 2);
+    assert.equal(dx0.length, 3, 'one forward line and two stub targets');
     dx0.forEach(near);
     const sameSide = forwards.find((f) => payload.sessions[f.from].title === 'Beta approx-end worker' && payload.sessions[f.to].title === 'Beta recent worker');
     assert.ok(sameSide, 'the same-side pair is in the payload');
-    const fwHit = page.locator('.link-g[data-type="forward"] .link-hit').nth(forwards.length - 1 - forwards.indexOf(sameSide)); // forward groups are prepended, so the DOM order is reversed
+    const sameSideSel = `.link-g[data-type="forward"][data-from="${sameSide.from}"][data-to="${sameSide.to}"]:not(.link-stub)`;
+    const fwHit = page.locator(`${sameSideSel} .link-hit`);
     await fwHit.scrollIntoViewIfNeeded();
     const fb = await fwHit.boundingBox();
-    const fwIndex = forwards.length - 1 - forwards.indexOf(sameSide);
     // the same-side precondition: both lines start on the same side of their shared target end
-    const sides = await page.evaluate((i) => {
-      const fg = document.querySelectorAll('.link-g[data-type="forward"]')[i];
+    const sides = await page.evaluate((sel) => {
+      const fg = document.querySelector(sel);
       const fe = fg.querySelector('.link-end').getBoundingClientRect();
       const spg = [...document.querySelectorAll('.link-g[data-type="send_prompt"]')].find((g) => {
         const e = g.querySelector('.link-end').getBoundingClientRect();
@@ -108,7 +109,7 @@ try {
       });
       const ln = (g) => { const l = g.querySelector('.link'); return Math.sign(Number(l.getAttribute('y1')) - Number(l.getAttribute('y2'))); };
       return spg ? [ln(spg), ln(fg)] : null;
-    }, fwIndex);
+    }, sameSideSel);
     assert.ok(sides && sides[0] !== 0 && sides[0] === sides[1], `same-side pair: both lines start on one side of the target (${sides})`);
     // the forward hit is painted beneath its send_prompt: only its exposed right-hand crescent can be reached
     const crescent = { x: fb.x + fb.width - 0.5, y: fb.y + fb.height / 2 };
@@ -135,6 +136,38 @@ try {
     await page.screenshot({ path: path.join(shots, '13b-forward-pair.png'),
       clip: { x: Math.max(0, fbZ.x - 90), y: Math.max(0, fbZ.y - 110), width: 180, height: 160 } });
     await page.click('button[name="reset-zoom"]');
+
+    // Section leads: a Conductor band, lead headers repeated per project, links only inside a group, stubs across groups.
+    const groupsOf = () => page.evaluate(() => {
+      const bands = [...document.querySelectorAll('.project-label')].map((n) => ({ name: n.textContent, y: n.getBoundingClientRect().y }));
+      const bars = [...document.querySelectorAll('.bar-g')].map((g) => ({ id: g.dataset.id, y: g.getBoundingClientRect().y }));
+      return Object.fromEntries(bands.map((b, i) => [b.name, bars.filter((x) => x.y > b.y && x.y < (bands[i + 1]?.y ?? Infinity)).sort((p, q) => p.y - q.y).map((x) => x.id)]));
+    });
+    const groups = await groupsOf();
+    assert.deepEqual(groups.Conductor, ['c0000004', '5ec00001', '5ec00002'], 'Conductor holds the conductor and its section leads');
+    assert.ok(groups.alpha.includes('5ec00001') && groups.beta.includes('5ec00001'), 'the lead repeats as a header in each project it drives');
+    assert.ok(groups.alpha.includes('e0000001') && groups.beta.includes('e0000002'));
+    const inConductor = await page.evaluate(() => {
+      const g = document.querySelector('.link-g[data-type="send_prompt"][data-from="c0000004"][data-to="5ec00001"]:not(.link-stub)');
+      if (!g) return false;
+      const bands = [...document.querySelectorAll('.project-label')].map((n) => ({ name: n.textContent, y: n.getBoundingClientRect().y }));
+      const y = g.querySelector('.link-end').getBoundingClientRect().y;
+      return y > bands.find((b) => b.name === 'Conductor').y && y < bands.find((b) => b.name === 'alpha').y;
+    });
+    assert.ok(inConductor, 'conductor → lead is drawn inside the Conductor band');
+    const stubSel = '.link-g.link-stub[data-type="forward"][data-from="e0000003"][data-to="5ec00002"]';
+    assert.equal(await page.locator(stubSel).count(), 2, 'a forward whose ends share no group is two stubs');
+    assert.equal(await page.locator('.link-g[data-type="forward"][data-from="e0000003"]:not(.link-stub)').count(), 0, '…and no line');
+    await page.screenshot({ path: path.join(shots, '14-section-leads.png'), fullPage: true });
+    const ring = page.locator(`${stubSel}:not(:has(.link-end)) .link-hit`);
+    await ring.scrollIntoViewIfNeeded();
+    const rb = await ring.boundingBox();
+    await page.mouse.move(rb.x + rb.width / 2, rb.y + rb.height / 2);
+    await page.waitForSelector('g.tooltip');
+    const stubTip = await page.textContent('g.tooltip');
+    assert.ok(stubTip.includes('Section lead two') && stubTip.includes('Conductor') && /not drawn here/.test(stubTip), `stub tooltip names the other end and its group (${stubTip})`);
+    await page.screenshot({ path: path.join(shots, '14b-stub-tooltip.png'), fullPage: true });
+    await page.mouse.move(5, 5);
 
     await page.click('button[name="filter:links"]');
     await page.fill('input[name="search:links"]', 'wake');
@@ -192,7 +225,8 @@ try {
     const legendSend = page.locator('.legend-item[data-key="send_prompt"]');
     await legendSend.click();
     assert.equal(await page.locator('.link-g[data-type="send_prompt"]').count(), 0);
-    assert.equal(await page.locator('.link-g[data-type="forward"]').count(), 2, 'hiding send_prompt leaves forward');
+    // forward: one line plus two stub ends for each of the two pairs whose ends share no group
+    assert.equal(await page.locator('.link-g[data-type="forward"]').count(), 5, 'hiding send_prompt leaves forward');
     assert.equal(await legendSend.getAttribute('aria-pressed'), 'false');
     await page.screenshot({ path: path.join(shots, '07b-legend-muted.png'), fullPage: true });
     await legendSend.click();

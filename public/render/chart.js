@@ -1,6 +1,7 @@
 import { el, svgEl, text, clear, listen } from '../lib/dom.js';
 import { ticks, zoomAt, pan } from '../lib/scale.js';
 import { ROW_H, HEADER_H } from '../lib/layout.js';
+import { projectLabel } from '../lib/grouping.js';
 import { fmtTime, fmtDuration, labelOf } from '../lib/format.js';
 import { endLabel } from './details.js';
 import { attachBrush } from './brush.js';
@@ -13,6 +14,8 @@ const STAGE_COLORS = 8;
 const APPROX_TAIL_PX = 26;
 /** A forward line is drawn this many pixels right of its send_prompt partner (about one `.link` stroke width); pixels, so zoom does not change it. */
 export const PAIR_OFFSET_PX = 2;
+/** Length of a link stub, inside the row height. */
+const STUB_PX = 9;
 // Drag state outlives a render: panning re-renders the svg on every move.
 let dragX = null;
 
@@ -86,14 +89,14 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
   const rowsHit = svgEl('rect', { class: 'plot-bg', x: LABEL_W, y: 0, width: plotW + PAD_R, height: layout.height });
   plot.appendChild(rowsHit);
   for (const r of layout.rows) {
-    if (r.kind === 'project') {
+    if (r.kind === 'band') {
       body.appendChild(svgEl('rect', { class: 'project-band', x: 0, y: r.y, width, height: HEADER_H }));
-      labels.appendChild(svgEl('text', { class: 'project-label', x: 8, y: r.y + HEADER_H - 8 }, text(r.project)));
+      labels.appendChild(svgEl('text', { class: 'project-label', x: 8, y: r.y + HEADER_H - 8 }, text(r.label)));
       continue;
     }
     const s = payload.sessions[r.id];
     body.appendChild(svgEl('rect', { class: `stripe${r.context ? ' context' : ''}`, x: 0, y: r.y, width, height: ROW_H }));
-    labels.appendChild(svgEl('text', { class: `row-label${r.context ? ' context' : ''}`, x: 10 + r.depth * 12, y: r.y + ROW_H / 2 + 4 },
+    labels.appendChild(svgEl('text', { class: `row-label${r.context ? ' context' : ''}${r.head ? ' head' : ''}`, x: 10 + r.depth * 12, y: r.y + ROW_H / 2 + 4 },
       text(trunc(labelOf(s), Math.floor((LABEL_W - 16 - r.depth * 12) / 6.4)))));
   }
 
@@ -150,7 +153,7 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
   const linkLayer = svgEl('g', { class: 'links' });
   for (const l of layout.links) {
     const x = X(l.ts) + (l.type === 'forward' ? PAIR_OFFSET_PX : 0);
-    const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type });
+    const lg = svgEl('g', { class: `link-g${l.heartbeat ? ' heartbeat' : ''}`, 'data-type': l.type, 'data-from': l.from, 'data-to': l.to });
     lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: l.y1, y2: l.y2 }));
     lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: l.y2, r: 3.5 }));
     lg.appendChild(svgEl('circle', { class: 'link-hit', cx: x, cy: l.y2, r: 7 }));
@@ -159,6 +162,23 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
     listen(lg, 'mouseleave', () => onLeave());
     // forward is painted beneath its send_prompt partner, which keeps its end dot whole
     if (l.type === 'forward') linkLayer.prepend(lg);
+    else linkLayer.appendChild(lg);
+  }
+  // A link whose ends share no group: a short stub at each end, ending in a ring, instead of a line across groups.
+  for (const st of layout.stubs) {
+    const x = X(st.ts) + (st.type === 'forward' ? PAIR_OFFSET_PX : 0);
+    const tip = st.y + st.dir * STUB_PX;
+    const lg = svgEl('g', { class: `link-g link-stub${st.heartbeat ? ' heartbeat' : ''}`, 'data-type': st.type, 'data-from': st.from, 'data-to': st.to });
+    lg.appendChild(svgEl('line', { class: 'link', x1: x, x2: x, y1: st.y, y2: tip }));
+    if (st.end === 'target') lg.appendChild(svgEl('circle', { class: 'link-end', cx: x, cy: st.y, r: 3.5 }));
+    lg.appendChild(svgEl('circle', { class: 'link-stub-end', cx: x, cy: tip, r: 3 }));
+    lg.appendChild(svgEl('circle', { class: 'link-hit', cx: x, cy: tip, r: 7 }));
+    const name = labelOf(payload.sessions[st.otherId] ?? { id: st.otherId });
+    const lines = [...linkLines(st, payload), `${name} — in ${projectLabel(st.otherGroup, payload.conductorProject)}, not drawn here`];
+    const at = (e) => { const b = overlay.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    listen(lg, 'mousemove', (e) => onHover(lines, ...at(e)));
+    listen(lg, 'mouseleave', () => onLeave());
+    if (st.type === 'forward') linkLayer.prepend(lg);
     else linkLayer.appendChild(lg);
   }
   plot.appendChild(linkLayer);

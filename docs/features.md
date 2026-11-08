@@ -2,11 +2,15 @@
 
 ## Rows and grouping
 
-- Chart rows: **project header → tree rows**. A tree's root is the conductor (a session with no parent, or an orphan whose parent is absent from `sessions.json`).
-- A root with no children is not a tree and is not shown.
-- Roots carry no `project`; a tree is attributed to every project of its descendants. In each project group the rows are that project's sessions plus all their ancestors; ancestors outside the project are **context** rows (italic, dimmed).
-- A tree's projects come from its descendants only; the root appears in a group only as a context row, whatever `project` its record carries.
-- Children are ordered by start; nesting has no depth limit.
+- Chart rows nest **project band → conductor → section lead → worker**. The order is fixed; there is no toggle.
+- **Roles** (the payload's per-row `role`):
+  - *Conductor*: a tree's root (a session with no parent, or an orphan whose parent is absent from `sessions.json`). Its own `project` is ignored. A root with no children is not a tree and is not shown.
+  - *Section lead*: a depth-1 session whose `project` is the payload's `conductorProject` (`.conduct`), with or without workers.
+  - *Worker*: every other session, including a `.conduct` session below depth 1.
+- **Project bands:** a worker belongs to the band of its `project`. Bands sort by name, the conductor project first, labelled **Conductor** (also in the Projects menu). Under Conductor sit only the roots that have section leads, with their lead headers; a lead with no workers still shows there.
+- **Headers repeat per band:** a conductor header (bold) appears in every band holding rows of its tree. A section lead appears in Conductor (its own row) and as a dimmed copy in each project band it drives. Workers sit at their tree depth under their lead (or under the conductor header, for the conductor's own workers).
+- **Context rows** (italic, dimmed): a conductor, a lead copy, or a worker ancestor whose `project` is not the band's, kept so the tree keeps its structure.
+- Within a band, trees follow tree start order; under a header, lead headers and workers follow tree start order. Nesting has no depth limit.
 
 ## Bars
 
@@ -27,7 +31,13 @@ Bar content:
 
 ## Links
 
-Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. The tooltip of either line of a forwarded prompt names sender → target and `forwarding <source>`. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
+Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. A link is drawn only inside one band:
+
+- **Which band:** among the bands holding rows for both ends, the one where most ends have their own (non-dimmed) row; ties go to the first band. In it each end uses its own row, else its first row.
+- **Stubs:** when both ends are drawn but no band holds both, no line is drawn. Each end gets a short stub at the event time (`STUB_PX` long, pointing toward the other end's row) ending in a hollow ring; the target end keeps its dot. The stub sits on the end's own row, else its topmost dimmed copy. Hover the ring: the usual tooltip plus `<other end> — in <band>, not drawn here`.
+- An end that is filtered out or outside the time range draws neither a line nor a stub. The type, heartbeat and legend filters hide stubs with their link.
+
+The tooltip of either line of a forwarded prompt names sender → target and `forwarding <source>`. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.
 
 | Type | Direction |
 |---|---|
@@ -41,7 +51,7 @@ Vertical connector at the event time from source row to target row, ending in a 
 
 - **Range:** last 6 h / 24 h / 72 h / 7 d / 14 d (refetches the window).
 - **Conductors, Projects, Links** (in that order; a tree is keyed by its conductor): one dropdown popover each (button shows `Label · All`, `Label · None` or `Label · n of m`). Each has a search box, *All* / *None* (acting on the rows the search leaves visible) and an *only* button per row. One popover is open at a time; it stays open across toggles and live reloads, and closes on Esc, a click outside, or Tab out.
-- **Narrowing:** Projects lists only the projects the selected conductors' trees touch (a tree under several projects counts for each); under Conductors *All* it lists every project. Stored Projects choices for hidden projects are kept and return when the Conductors selection widens. *All* / *None* / *only* in Projects act only on listed projects (*All* / *None* also only search-visible ones). Projects never narrows Conductors. Under Conductors *None*, Projects lists nothing and says so.
+- **Narrowing:** Projects lists only the projects the selected conductors' trees touch (a tree with workers in several projects counts for each); under Conductors *All* it lists every project. Stored Projects choices for hidden projects are kept and return when the Conductors selection widens. *All* / *None* / *only* in Projects act only on listed projects (*All* / *None* also only search-visible ones). Projects never narrows Conductors. Under Conductors *None*, Projects lists nothing and says so.
 - **Selection semantics:** *All* means every project/conductor, including ones that appear after load (range change, live data). An explicit subset keeps new items hidden, and its button reads `n of m` even when the subset happens to cover every current item (only the real All reads `All`). An empty Conductors or Projects selection draws no rows; the chart hint names which filter is empty. Filter state is in memory only; a page reload resets it.
 - **Crosshair:** hovering the time scale's plot area shows a vertical line through the scale and the visible rows, and a readout `MM-DD HH:MM` in local time, with `:SS` when one pixel spans at most `READOUT_SECONDS_MS_PER_PX` (`public/lib/scale.js`). It follows the pointer during a drag-to-zoom (clamped to the plot) and stays at the pointer across reloads and wheel zoom. It hides when the pointer leaves the scale or is over the label column, after a press ends or is cancelled until the next move.
 - **Link groups:** the Links popover groups types by kind (`LINK_GROUPS` in `public/lib/linkGroups.js`): Lifecycle, Driving, Plans, Wakes, Config, Other. A type missing from the table goes to Other. Each group has a tri-state checkbox and a disclose button (collapsed by default; while a search is active matching groups are expanded and the disclose buttons are disabled). `wake heartbeat` is an item of Wakes, independent of `wake`.

@@ -8,34 +8,40 @@
 | `src/config.js` | `resolveConfig(env)`: `projectsRoot`, `storeDir`, `conductorUrl`. Library code never reads `process.env`. |
 | `src/jsonlTail.js` | `readFrom(file, offset, {onOpen})`: incremental JSONL reader. |
 | `src/store/{sessions,events}.js` | `loadSessions`, `EventLogReader` (`events.jsonl`; exposes `horizonTs`). |
-| `src/model/{linkTypes,resolve,tree,links,bars,turns,build}.js` | Catalog, id resolution, forest/grouping, link derivation, bar derivation, `turn`-row folding (`buildTurns`), payload assembly. |
+| `src/model/{linkTypes,resolve,tree,links,bars,turns,build}.js` | Catalog, id resolution, forest and row roles, link derivation, bar derivation, `turn`-row folding (`buildTurns`), payload assembly. |
 | `src/state.js` | Holds readers and the snapshot (`liveSet`, `version`); no payload logic. |
 | `src/live.js` | `createLive`: store-stat poll, `/ws` hint, liveness fetch; network, timers injectable. |
 | `src/http/app.js` | `createApp`: routes, static allowlist, security headers, SSE client cap. |
 | `src/serial.js` | `createSerializer`: one-at-a-time async queue. |
-| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart` (the chart frame), `brush`, `crosshair`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
+| `public/` | Static frontend: `lib/` (pure `scale`, `layout`, `grouping`, `selection`, `filterModel`, `linkGroups`; `dom`, `api`, `format`), `render/` (`chart` (the chart frame), `brush`, `crosshair`, `filters`, `filterMenu`, `legend`, `swatch`, `details`, `tooltip`), `app.js` (wiring), `main.js` (entry). |
 | `harness/playwright/` | `golden-path.mjs`, `real-store.mjs`, `fixture-store.mjs`, `resolve.mjs`. |
 
 ## Data flow
 
-`refreshStores()` (sessions whole, event log incrementally) → on request `buildPayload(state, window)`: horizon (none, or a requested window ending before it → empty payload; else the window's `from` is raised to it) → `buildForest` → `groupByProject` → `buildLinks` → `buildTurns` → per-session `buildBar` → window filter → `clipToHorizon` → payload. `Live` bumps `state.version`; `/api/stream` forwards it.
+`refreshStores()` (sessions whole, event log incrementally) → on request `buildPayload(state, window)`: horizon (none, or a requested window ending before it → empty payload; else the window's `from` is raised to it) → `buildForest` → `buildLinks` → `buildTurns` → per-session `buildBar` → window filter → `clipToHorizon` → payload. `Live` bumps `state.version`; `/api/stream` forwards it.
 
 ## Rules
 
 ### Horizon
 
 - `EventLogReader.horizonTs` = the later of the `ts` of the first `wake` row or first `call` row with `actor.sessionId` (the first row in line order) and the `ts` of the first `turn` row. `null` while either is missing; cleared on a truncation reset. No date is hardcoded.
-- `buildPayload` with no horizon, or with a requested `to` before it, returns no projects, sessions or links and the requested window, unclamped. `diagnostics.horizon` is `null` without a horizon and stays set otherwise. The frontend banner says there is no complete history only for `null`.
+- `buildPayload` with no horizon, or with a requested `to` before it, returns no trees, sessions or links and the requested window, unclamped. `diagnostics.horizon` is `null` without a horizon and stays set otherwise. The frontend banner says there is no complete history only for `null`.
 - Otherwise (`to` at or after the horizon) the horizon is a floor on the window: `from = max(from, horizon)`, and `window.from` reports the clamped value. The window filter then drops bars that ended earlier, clips turns, and drops links before it (spawn links at a pre-horizon child start included). Frontend zoom/pan bounds are `window`, so nothing earlier can be reached.
 - Clipping is output-only. Bars, `namedMax`, `linkTs` and `kills` are derived from the whole log, so a pre-horizon exit, kill or last mention still ends a bar (and hides it) instead of turning it into a false `approx` or `live` bar.
-- `clipToHorizon(bar, h)` (`src/model/bars.js`): a bar ending at or after `h` starts at `h`, keeps marks and rotations with `at >= h`, drops stage bands ending at or before `h`, and the band held at `h` starts at `h` (its `stage` and `via` kept; `playbook` kept). A bar ending before `h` (only a context row can) keeps `start`/`end`/`endKind` and has empty marks, rotations, stages and turns: a label-only row.
-- Hidden ancestors: the forest is built from all of `sessions.json` and the row rule is unchanged. A hidden same-project parent is dropped and its visible child keeps its `depth`; a hidden root or other-project ancestor stays as a `context` row so the tree keeps its structure and `rootId` resolves in `sessions`. A tree is shown only when a non-context row is visible.
+- `clipToHorizon(bar, h)` (`src/model/bars.js`): a bar ending at or after `h` starts at `h`, keeps marks and rotations with `at >= h`, drops stage bands ending at or before `h`, and the band held at `h` starts at `h` (its `stage` and `via` kept; `playbook` kept). A bar ending before `h` (only a row kept as an ancestor can) keeps `start`/`end`/`endKind` and has empty marks, rotations, stages and turns: a label-only row.
+- Hidden ancestors: the forest is built from all of `sessions.json`. `buildPayload` keeps a row when its bar overlaps the window or it has a kept descendant, so a hidden ancestor stays (label-only) and the tree keeps its structure and `rootId` resolves in `sessions`. A tree is kept only when a non-root row is kept.
 - `turnCount` is `turnEndSeq` (lifetime, from `sessions.json`) else the event-log turn count, so it can exceed the turns drawn on a clipped bar.
 
 ### Tree and grouping
 
 - Root: no `parent`, or `parent` not in `sessions.json` (`orphan`). A parent loop is broken at its smallest id (that member becomes an orphan root) and counted in `diagnostics.treeLoops`.
-- Childless roots are excluded. A tree is grouped under each project of its **descendants** (the root's own `project` never makes a group); the root and non-matching ancestors are `context` rows. The walk, cycle detection and grouping are iterative and O(n), so a very deep chain cannot overflow the stack.
+- Childless roots are excluded. `buildForest` gives each row a `role`: root → `conductor`; depth 1 with `project === CONDUCTOR_PROJECT` → `lead`; else `worker`. The walk and cycle detection are iterative and O(n), so a very deep chain cannot overflow the stack.
+- Grouping is client-side, in `groupRows` (`public/lib/grouping.js`), per tree:
+  - *Entries:* for each owner (the root, or a lead) and each project in its workers' projects, a unit of those workers plus their ancestors below the owner; plus a self-entry per lead in its own project.
+  - *Path:* an entry's path is `[project, ...owner chain]` (`LEVELS`); entries merge into a trie, emitted depth-first as bands, headers and rows.
+  - *Filters* apply to entries before the trie: Conductors drops trees; Projects drops units and self-entries of unselected projects; the time range keeps rows that overlap or are ancestors of kept rows. A node exists only if a surviving entry passes through it.
+  - *Row `context`:* a header is own (not context) only when its `project` is the band's and it is not the root.
+- Links and stubs are placed in `applyFilters` (`public/lib/layout.js`); `layout.stubs` carries `{...link, end, y, dir, otherId, otherGroup}` per stub end.
 
 ### Bar end precedence
 
@@ -88,7 +94,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 ## Frontend filter state
 
 - `state.filters` in `public/app.js` is the only store. `lib/filterModel.js` is the only adapter between it and the popovers/legend.
-- `projects`/`roots`: `null` = All, a `Set` = exactly those keys, an empty `Set` = none (`wants` in `lib/layout.js`). `applySelection` collapses a set covering every current item back to `null`.
+- `projects`/`roots`: `null` = All, a `Set` = exactly those keys, an empty `Set` = none (`wants` in `lib/grouping.js`). `applySelection` collapses a set covering every current item back to `null`.
 - The `roots` dimension's UI label is set in `MENUS` (`public/render/filters.js`). `listedProjects` narrows what the Projects menu lists; `filters.projects` is never pruned by it. `selectedKeys`/`applySelection` always get the **full** project items: with the listed ones, a set would collapse to `null` and silently select hidden deselected projects. `emptyHint` gives the chart's empty-state text.
 - `filterMenu.js` passes the menu's listed items (not the full set) to `only` in `public/lib/selection.js`; see its docblock for the semantics.
 - Links: an explicit `linkTypes` Set plus the `heartbeat` boolean; `HEARTBEAT_KEY` is the pseudo-item the UI uses for it.

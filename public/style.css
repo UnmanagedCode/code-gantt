@@ -87,6 +87,7 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .project-label { font-weight: 600; }
 .stripe { fill: transparent; }
 .stripe.context { fill: color-mix(in oklab, var(--muted) 40%, transparent); }
+.row-label.head { font-weight: 600; }
 .row-label.context { fill: var(--muted-foreground); font-style: italic; }
 .grid { stroke: var(--grid); }
 .now { stroke: var(--destructive); stroke-dasharray: 3 3; }
@@ -115,7 +116,8 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 /* link colours: one rule per type, shared by chart lines and legend swatches */
 .link { stroke: var(--c, var(--muted-foreground)); stroke-width: 1.6; fill: none; }
 .link-end { fill: var(--c, var(--muted-foreground)); stroke: var(--card); stroke-width: 1.5; }
-.link, .link-end { pointer-events: none; }
+.link-stub-end { fill: var(--card); stroke: var(--c, var(--muted-foreground)); stroke-width: 1.5; }
+.link, .link-end, .link-stub-end { pointer-events: none; }
 .link-hit { fill: transparent; pointer-events: all; cursor: help; }
 .swatch { border-top-color: var(--c, var(--muted-foreground)); }
 .link-g.heartbeat .link { stroke-dasharray: 2 3; }

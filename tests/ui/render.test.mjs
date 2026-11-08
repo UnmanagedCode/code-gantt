@@ -20,7 +20,8 @@ function payload(over = {}) {
   return {
     now: 10_000, window: { from: 0, to: 10_000 }, version: 1,
     linkTypes: ['spawn', 'send_prompt', 'forward', 'wake', 'other'],
-    projects: [{ project: 'proj', trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true, note: S }, { id: 'w1', depth: 1, context: false }, { id: 'w2', depth: 1, context: false }] }] }],
+    conductorProject: '.conduct',
+    trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, role: 'conductor', note: S }, { id: 'w1', depth: 1, role: 'worker' }, { id: 'w2', depth: 1, role: 'worker' }] }],
     sessions: {
       root: s('root', { title: 'Conductor' }),
       w1: s('w1', { title: 'Worker one', project: 'proj', worktree: 'wt-1', model: 'model-x', playbook: 'classic', prompt: S, text: S, feedback: [S] }),
@@ -56,9 +57,10 @@ test('dom.js refuses event-handler, style and URL attributes', () => {
 test('XSS: hostile id, title, project, worktree, model, stage, via and tool render as text only', async () => {
   const p = payload();
   p.sessions[EVIL] = { ...p.sessions.w2, id: EVIL, endKind: 'exited', title: undefined };
-  p.projects[0].trees[0].rows.push({ id: EVIL, depth: 1, context: false });
+  p.trees[0].rows.push({ id: EVIL, depth: 1, role: 'worker' });
   p.links.push({ ts: 8000, type: 'spawn', from: 'root', to: EVIL });
-  p.projects[0].project = EVIL;
+  p.sessions.w2.project = EVIL;
+  p.sessions[EVIL].project = EVIL;
   p.sessions.w1 = { ...p.sessions.w1, id: 'w1', title: EVIL2, project: EVIL, worktree: EVIL, model: EVIL2, playbook: EVIL,
     stages: [{ stage: EVIL, from: 1000, to: 9000, via: EVIL2 }] };
   p.linkTypes.push(EVIL);
@@ -142,13 +144,13 @@ test('C6: free-text fields outside the payload schema are never rendered (page, 
 test('R5: a selection named like an Object.prototype member that vanishes from the payload falls back to the hint, not garbage', async () => {
   const p = payload();
   p.sessions.constructor = { ...p.sessions.w2, id: 'constructor', endKind: 'exited' };
-  p.projects[0].trees[0].rows.push({ id: 'constructor', depth: 1, context: false });
+  p.trees[0].rows.push({ id: 'constructor', depth: 1, role: 'worker' });
   const { root, app } = boot(p);
   await app.load();
   click([...root.querySelectorAll('.bar-g')].find((n) => n.getAttribute('data-id') === 'constructor'));
   assert.ok(root.querySelector('#details').textContent.includes('constructor'));
   delete p.sessions.constructor;
-  p.projects[0].trees[0].rows.pop();
+  p.trees[0].rows.pop();
   await app.load();
   assert.match(root.querySelector('#details').textContent, /Select a bar/);
 });
@@ -159,13 +161,13 @@ test('with horizon null the status banner is non-empty; with a horizon it is emp
   const withHorizon = boot(p);
   await withHorizon.app.load();
   assert.equal(withHorizon.root.querySelector('.banner').textContent, '');
-  const none = payload({ projects: [], sessions: {}, links: [] });
+  const none = payload({ trees: [], sessions: {}, links: [] });
   none.diagnostics.horizon = null;
   const b = boot(none);
   await b.app.load();
   assert.notEqual(b.root.querySelector('.banner').textContent, '');
   // T5: keyed on the horizon, not on an empty chart
-  const empty = boot(payload({ projects: [], sessions: {}, links: [] }));
+  const empty = boot(payload({ trees: [], sessions: {}, links: [] }));
   await empty.app.load();
   assert.equal(empty.root.querySelector('.banner').textContent, '');
 });
@@ -173,9 +175,9 @@ test('with horizon null the status banner is non-empty; with a horizon it is emp
 // ---- filter popovers and legend ----
 const two = () => {
   const p = payload();
-  p.projects.push({ project: 'other', trees: [{ rootId: 'root2', rows: [{ id: 'root2', depth: 0, context: true }, { id: 'x1', depth: 1, context: false }] }] });
+  p.trees.push({ rootId: 'root2', rows: [{ id: 'root2', depth: 0, role: 'conductor' }, { id: 'x1', depth: 1, role: 'worker' }] });
   p.sessions.root2 = { ...p.sessions.root, id: 'root2', title: 'Second' };
-  p.sessions.x1 = { ...p.sessions.w2, id: 'x1', endKind: 'exited', end: 9000 };
+  p.sessions.x1 = { ...p.sessions.w2, id: 'x1', project: 'other', endKind: 'exited', end: 9000 };
   return p;
 };
 const $ = (root, sel) => root.querySelector(sel);
@@ -323,7 +325,7 @@ test('a project that appears on reload is visible under All and stays hidden und
   const q = payload();
   const b = boot(q);
   await b.app.load();
-  q.projects.push(two().projects[1]);
+  q.trees.push(two().trees[1]);
   Object.assign(q.sessions, { root2: two().sessions.root2, x1: two().sessions.x1 });
   b.app.state.filters.projects = new Set(['proj']);
   await b.app.load();
@@ -346,20 +348,19 @@ test('an explicit subset whose other items vanish reads "1 of 1", not All, and a
   await app.load();
   click($(root, '#fmenu-projects .fmenu-row[data-key="proj"] button.only'));
   const bShrunk = payload();
-  p.projects = bShrunk.projects;
+  p.trees = bShrunk.trees;
   await app.load();
   assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 1');
   const w = two();
-  p.projects = w.projects;
+  p.trees = w.trees;
   await app.load();
   assert.equal(summaryOf(root, 'projects'), 'Projects · 1 of 2');
   const names = [...root.querySelectorAll('.project-label')].map((n) => n.textContent);
   assert.deepEqual(names, ['proj']);
 });
 
-test('the same root under two projects renders a single root checkbox', async () => {
-  const p = two();
-  p.projects[1].trees.push({ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true }, { id: 'w1', depth: 1, context: false }] });
+test('a root whose workers span two projects renders a single root checkbox', async () => {
+  const p = three();
   const { root, app } = boot(p);
   await app.load();
   assert.equal(root.querySelectorAll('input[name="root:root"]').length, 1);
@@ -482,7 +483,7 @@ test('the Conductors button reflects its selection', async () => {
 // root touches proj and third; root2 touches other.
 const three = () => {
   const p = two();
-  p.projects.push({ project: 'third', trees: [{ rootId: 'root', rows: [{ id: 'root', depth: 0, context: true }, { id: 'w3', depth: 1, context: false }] }] });
+  p.trees[0].rows.push({ id: 'w3', depth: 1, role: 'worker' });
   p.sessions.w3 = { ...p.sessions.w2, id: 'w3', project: 'third' };
   return p;
 };
@@ -503,13 +504,13 @@ test('Conductors comes first, before Projects and Links, and no toolbar text say
 test('the Conductors selection narrows the Projects list; All restores it', async () => {
   const { root, app } = boot(three());
   await app.load();
-  assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'other', 'third']);
+  assert.deepEqual(listedKeys(root, 'projects'), ['other', 'proj', 'third']);
   onlyRoot(root, 'root');
   assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'third']);
   onlyRoot(root, 'root2');
   assert.deepEqual(listedKeys(root, 'projects'), ['other']);
   click($(root, '#fmenu-roots button[name="all"]'));
-  assert.deepEqual(listedKeys(root, 'projects'), ['proj', 'other', 'third']);
+  assert.deepEqual(listedKeys(root, 'projects'), ['other', 'proj', 'third']);
 });
 
 test('a deselected project hidden by narrowing comes back deselected', async () => {
@@ -688,7 +689,7 @@ test('a reload during a drag is deferred until the drag ends', async () => {
     drag(host, 100, mode === 'click' ? 101 : 300);
     const more = payload();
     more.sessions.w3 = { ...more.sessions.w2, id: 'w3' };
-    more.projects[0].trees[0].rows.push({ id: 'w3', depth: 1, context: false });
+    more.trees[0].rows.push({ id: 'w3', depth: 1, role: 'worker' });
     current = more;
     await app.load();
     assert.equal(svg.isConnected, true, mode);
@@ -715,7 +716,7 @@ test('losing pointer capture mid-drag aborts the brush and clears the deferral',
   assert.equal(app.state.view, null);
   const more = payload();
   more.sessions.w3 = { ...more.sessions.w2, id: 'w3' };
-  more.projects[0].trees[0].rows.push({ id: 'w3', depth: 1, context: false });
+  more.trees[0].rows.push({ id: 'w3', depth: 1, role: 'worker' });
   current = more;
   await app.load();
   assert.ok(host.querySelector('[data-id="w3"]'));
@@ -1177,4 +1178,60 @@ test('send_prompt and forward toggles hide only their own line', async () => {
   setChecked($(root, 'input[name="link:forward"]'), true);
   setChecked($(root, 'input[name="link:send_prompt"]'), false);
   assert.deepEqual([count('send_prompt'), count('forward')], [0, 1]);
+});
+
+// ---- section leads: Conductor band, headers, cross-group stubs ----
+const leadsPayload = () => {
+  const s = (id, project, extra = {}) => ({ id, project, start: 1000, end: 9000, endKind: 'exited', turns: [], turnCount: 0, rotations: [], stages: [], marks: [], ...extra });
+  const p = payload();
+  p.trees = [{ rootId: 'c', rows: [
+    { id: 'c', depth: 0, role: 'conductor' },
+    { id: 'l1', depth: 1, role: 'lead' }, { id: 'w1', depth: 2, role: 'worker' },
+    { id: 'l2', depth: 1, role: 'lead' },
+    { id: 'd1', depth: 1, role: 'worker' },
+  ] }];
+  p.sessions = { c: s('c', undefined, { title: 'Boss' }), l1: s('l1', '.conduct', { title: 'Lead one' }), w1: s('w1', 'alpha'), l2: s('l2', '.conduct', { title: 'Lead two' }), d1: s('d1', 'alpha', { title: 'Direct' }) };
+  p.links = [
+    { ts: 2000, type: 'send_prompt', from: 'c', to: 'l1' },
+    { ts: 4000, type: 'forward', from: 'd1', to: 'l2' },
+  ];
+  return p;
+};
+
+test('the conductor project renders as a Conductor band holding the conductor and its leads; leads repeat as context headers', async () => {
+  const { root, app } = boot(leadsPayload());
+  await app.load();
+  assert.deepEqual([...root.querySelectorAll('.project-label')].map((n) => n.textContent), ['Conductor', 'alpha']);
+  const labels = [...root.querySelectorAll('.row-label')].map((n) => [n.textContent, n.classList.contains('head'), n.classList.contains('context')]);
+  assert.deepEqual(labels, [
+    ['Boss', true, true], ['Lead one', true, false], ['Lead two', true, false],
+    ['Boss', true, true], ['Lead one', true, true], ['w1', false, false], ['Direct', false, false],
+  ]);
+  assert.ok(root.querySelector('.link-g[data-type="send_prompt"][data-from="c"][data-to="l1"]'), 'conductor → lead is drawn');
+});
+
+test('a link between rows of different groups renders a stub with a ring at each end and no line; hovering names the other end and its group', async () => {
+  const { root, app } = boot(leadsPayload());
+  await app.load();
+  assert.equal(root.querySelectorAll('.link-g:not(.link-stub)[data-type="forward"]').length, 0);
+  const stubs = [...root.querySelectorAll('.link-g.link-stub[data-type="forward"]')];
+  assert.equal(stubs.length, 2);
+  for (const g of stubs) {
+    assert.equal(g.getAttribute('data-from'), 'd1');
+    assert.equal(g.getAttribute('data-to'), 'l2');
+    assert.ok(g.querySelector('circle.link-stub-end'));
+  }
+  assert.equal(stubs.filter((g) => g.querySelector('.link-end')).length, 1, 'only the target end keeps the filled dot');
+  const tipOf = (g) => {
+    g.dispatchEvent(new win.MouseEvent('mouseleave', { bubbles: true }));
+    hoverNode(g.querySelector('.link-hit'));
+    return [...root.querySelector('g.tooltip').querySelectorAll('text')].map((n) => n.textContent);
+  };
+  const target = stubs.find((g) => g.querySelector('.link-end'));
+  const source = stubs.find((g) => !g.querySelector('.link-end'));
+  assert.equal(tipOf(source)[0], 'forward');
+  assert.ok(tipOf(source).some((l) => l.includes('Lead two') && l.includes('Conductor')), 'the source stub names the target and its group');
+  assert.ok(tipOf(target).some((l) => l.includes('Direct') && l.includes('alpha')), 'the target stub names the source and its group');
+  setChecked($(root, 'input[name="link:forward"]'), false);
+  assert.equal(root.querySelectorAll('.link-stub').length, 0);
 });

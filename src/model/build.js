@@ -1,4 +1,4 @@
-import { buildForest, groupByProject } from './tree.js';
+import { buildForest, CONDUCTOR_PROJECT } from './tree.js';
 import { buildLinks } from './links.js';
 import { buildBar, clipToHorizon } from './bars.js';
 import { resolveId } from './resolve.js';
@@ -24,15 +24,13 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   // Nothing is drawable without a horizon, or in a window that ends before it; the requested window is echoed.
   if (horizon == null || to < horizon) {
     return {
-      now, window: { from, to }, version: state.version, linkTypes: LINK_TYPES, projects: [], sessions: {}, links: [],
+      now, window: { from, to }, version: state.version, linkTypes: LINK_TYPES, conductorProject: CONDUCTOR_PROJECT, trees: [], sessions: {}, links: [],
       diagnostics: diagnostics(state, { horizon: horizon == null ? null : new Date(horizon).toISOString(), unresolved: 0, unmatchedStoreRows: { events: 0 }, unknownTools: {}, treeLoops: 0 }),
     };
   }
   from = Math.max(from, horizon);
   const { byId, byBacking } = state.sessions;
   const forest = buildForest(byId);
-  const groups = groupByProject(forest.trees);
-  const treeByRoot = new Map(forest.trees.map((t) => [t.rootId, t]));
   const ids = { byId, byBacking };
   const idOf = (raw) => resolveId(raw, ids);
 
@@ -99,25 +97,31 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
   };
 
   const sessions = new Map(); // keyed by ids from the store: never a plain object
-  const projects = [];
-  for (const g of groups) {
-    const trees = [];
-    for (const t of g.trees) {
-      if (!t.rows.some((r) => !r.context && overlaps(r.id))) continue;
-      const rows = t.rows.filter((r) => r.context || overlaps(r.id));
-      trees.push({ rootId: t.rootId, rows });
-      for (const r of rows) {
-        if (sessions.has(r.id)) continue;
-        const rec = byId.get(r.id);
-        const bar = barOf(r.id);
-        const s = clipToHorizon({ ...bar, turns: clipTurns(bar.turns, from, to) }, horizon);
-        for (const k of ['title', 'project', 'worktree', 'parent']) if (rec[k] != null) s[k] = rec[k];
-        if (rec.backend?.model) s.model = rec.backend.model;
-        if (orphanRoots.has(r.id)) s.orphan = true;
-        sessions.set(r.id, s);
+  const trees = [];
+  for (const t of forest.trees) {
+    // A row is kept when it overlaps the window or has a kept descendant; a tree is kept when a non-root row is.
+    const keep = new Set();
+    const stack = [];
+    for (const row of t.rows) {
+      stack.length = row.depth;
+      stack.push(row.id);
+      if (row.depth > 0 && overlaps(row.id)) {
+        // walk up only until an ancestor already kept: amortised O(n)
+        for (let i = row.depth; i >= 0 && !keep.has(stack[i]); i--) keep.add(stack[i]);
       }
     }
-    if (trees.length) projects.push({ project: g.project, trees });
+    if (keep.size === 0) continue;
+    const rows = t.rows.filter((r) => keep.has(r.id));
+    trees.push({ rootId: t.rootId, rows });
+    for (const r of rows) {
+      const rec = byId.get(r.id);
+      const bar = barOf(r.id);
+      const s = clipToHorizon({ ...bar, turns: clipTurns(bar.turns, from, to) }, horizon);
+      for (const k of ['title', 'project', 'worktree', 'parent']) if (rec[k] != null) s[k] = rec[k];
+      if (rec.backend?.model) s.model = rec.backend.model;
+      if (orphanRoots.has(r.id)) s.orphan = true;
+      sessions.set(r.id, s);
+    }
   }
 
   const links = allLinks.filter((l) => l.ts >= from && l.ts <= to && sessions.has(l.from) && sessions.has(l.to));
@@ -127,7 +131,8 @@ export function buildPayload(state, { from, to, now = Date.now() } = {}) {
     window: { from, to },
     version: state.version,
     linkTypes: LINK_TYPES,
-    projects,
+    conductorProject: CONDUCTOR_PROJECT,
+    trees,
     sessions: Object.fromEntries(sessions),
     links,
     diagnostics: diagnostics(state, {
