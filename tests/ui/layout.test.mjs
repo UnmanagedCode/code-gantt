@@ -366,6 +366,7 @@ test('root → lead B is drawn in lead B’s section on that section’s root co
   assert.equal(inB.y2, yIn(res, 'l2', 'alpha', 'l2'));
   assert.equal(inB.y2 - inB.y1, ROW_H);
   const sectionA = res.rows.filter((r) => r.kind === 'row' && r.group === 'alpha' && r.section === 'l1').map((r) => r.y + ROW_H / 2);
+  assert.equal(sectionA.length, 4);
   assert.ok(ls.every((l) => !sectionA.includes(l.y1) && !sectionA.includes(l.y2)));
   assert.equal(res.stubs.length, 0);
 });

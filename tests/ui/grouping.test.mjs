@@ -178,7 +178,7 @@ test('the conductor’s direct workers form the band’s first section, under th
   const rows = inGroup(groupRows(coreTrees(), coreSessions(), sel()), 'alpha');
   const own = rows.filter((r) => r.section === 'c');
   assert.deepEqual(own.map((r) => [r.id, r.depth]), [['c', 0], ['d1', 1], ['d2', 1]]);
-  assert.equal(rows.indexOf(own[0]), 0);
+  assert.deepEqual(rows.slice(0, own.length).map((r) => r.id), ['c', 'd1', 'd2'], 'the own section is the band’s contiguous first block');
   assert.equal(rows.some((r) => r.head === 'lead' && r.section === 'c'), false);
 });
 
