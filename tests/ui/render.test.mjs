@@ -1457,6 +1457,9 @@ test('the now line is painted above bars', async () => {
   const bars = host.querySelectorAll('g.bar-g');
   assert.ok(bars.length > 0);
   for (const g of bars) assert.ok(g.compareDocumentPosition(line) & win.Node.DOCUMENT_POSITION_FOLLOWING);
+  const rect = host.querySelector('g.bar-g[data-id="w2"] rect.bar');
+  const barRight = Number(rect.getAttribute('x')) + Number(rect.getAttribute('width'));
+  assert.ok(Math.abs(barRight - Number(line.getAttribute('x1'))) <= 1.5, 'the live bar ends on the now line, so the ordering check is not vacuous');
 });
 
 test('a live view draws the now line at its right edge, before and after a reload', async () => {
@@ -1496,4 +1499,17 @@ test('panning a live view off the edge removes the now line; panning back restor
   mouse(sq(host, 'svg.chart'), 'mousemove', 100);
   assert.equal(nowLines(host).length, 1);
   mouse(sq(host, 'svg.chart'), 'mouseup', 100);
+});
+
+test('a live view panned 1 px off the right edge is frozen and draws no now line (no tolerance)', async () => {
+  const { host, app } = bootLive(10_000);
+  await app.load();
+  wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + plotWOf(host), { deltaY: -100 });
+  assert.equal(app.state.view.live, true);
+  const mouse = (node, type, x) => node.dispatchEvent(new win.MouseEvent(type, { bubbles: true, clientX: x }));
+  mouse(sq(host, 'rect.plot-bg'), 'mousedown', 500);
+  mouse(sq(host, 'svg.chart'), 'mousemove', 501);
+  assert.equal(app.state.view.live, false);
+  assert.equal(nowLines(host).length, 0);
+  mouse(sq(host, 'svg.chart'), 'mouseup', 501);
 });
