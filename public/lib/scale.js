@@ -3,6 +3,12 @@
 export const MIN_SPAN_MS = 1000;
 export const BRUSH_MIN_PX = 4;
 
+/** A wheel zoom anchored within this many plot pixels of the drawn right edge, or a brush whose right end lands there, is treated as being at that edge. */
+export const LIVE_EDGE_PX = 4;
+
+/** A result less than this many plot pixels short of the gesture bounds' right edge draws at that edge. */
+const AT_EDGE_PX = 0.5;
+
 export function timeScale(from, to, width) {
   const span = to - from;
   return {
@@ -23,8 +29,9 @@ function fit(from, span, bounds) {
 export function zoomAt(scale, cursorX, factor, bounds) {
   const maxSpan = bounds.to - bounds.from;
   const span = Math.min(maxSpan, Math.max(MIN_SPAN_MS, (scale.to - scale.from) / factor));
-  const tc = scale.invert(cursorX);
-  const from = fit(tc - (cursorX / scale.width) * span, span, bounds);
+  const cx = cursorX >= scale.width - LIVE_EDGE_PX ? scale.width : cursorX;
+  const tc = scale.invert(cx);
+  const from = fit(tc - (cx / scale.width) * span, span, bounds);
   return timeScale(from, from + span, scale.width);
 }
 
@@ -45,13 +52,33 @@ export function brushSpan(scale, x0, x1) {
 
 /** The view for a brush from pixel `x0` to `x1`, or null when it is a click / jitter. */
 export function brushView(scale, x0, x1, bounds) {
-  const { lo, hi } = brushSpan(scale, x0, x1);
-  if (hi - lo < BRUSH_MIN_PX) return null;
+  const { lo, hi: rawHi } = brushSpan(scale, x0, x1);
+  if (rawHi - lo < BRUSH_MIN_PX) return null;
+  const hi = rawHi >= scale.width - LIVE_EDGE_PX ? scale.width : rawHi;
   const tLo = Math.max(bounds.from, scale.invert(lo));
   const tHi = Math.min(bounds.to, scale.invert(hi));
   const span = Math.min(bounds.to - bounds.from, Math.max(MIN_SPAN_MS, tHi - tLo));
   const from = fit((tLo + tHi) / 2 - span / 2, span, bounds);
   return timeScale(from, from + span, scale.width);
+}
+
+/**
+ * A view that follows "now": its left edge stays and its right edge moves to `window.to`.
+ * Null when the left edge is at or before `window.from`: that is the default view, which follows already.
+ */
+export function followNow(view, window) {
+  if (view.from <= window.from) return null;
+  return { from: view.from, to: window.to, live: true };
+}
+
+/**
+ * The stored view for a gesture result `s` drawn against `gestureBounds`: live (ending at `current.to`)
+ * when `s` reaches the right edge of `gestureBounds`, else frozen as given.
+ */
+export function settleView(s, gestureBounds, current) {
+  const pxMs = (s.to - s.from) / s.width;
+  if (gestureBounds.to - s.to < AT_EDGE_PX * pxMs) return followNow({ from: s.from, to: s.to }, current);
+  return { from: s.from, to: s.to, live: false };
 }
 
 const STEPS = [1, 5, 15, 30].map((s) => s * 1000)

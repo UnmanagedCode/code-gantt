@@ -105,7 +105,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 ## Frontend zoom state
 
-- `state.view` in `public/app.js` is the only zoom store (`null` = `payload.window`). Wheel, pan and brush all write it through `createChart(...).render`'s `onView`; *Reset zoom* and the Range select clear it.
+- `state.view` in `public/app.js` is the only zoom store: `null` (= `payload.window`) or `{from, to, live}`. When `live`, `to === state.payload.window.to` ("now" is `window.to`); `load()` re-anchors it with `followNow`, and `onView` stores `settleView(s, p.window, state.payload.window)`, judging liveness against the payload of the render that drew the gesture (a brush can commit after a deferred reload). Both are in `public/lib/scale.js`; `followNow` returns `null` once `from <= window.from`. Wheel, pan and brush all write it through `createChart(...).render`'s `onView`; *Reset zoom* and the Range select clear it.
 - `render` rebuilds the svgs on every render, so a gesture spanning renders keeps its state outside the svg (pan: module-level `dragX`) or defers renders (brush: `onBrush(true)` makes `render()` set `stale` and return; `onBrush(false)` runs the pending render).
 
 ## Frontend security

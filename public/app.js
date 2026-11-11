@@ -1,5 +1,5 @@
 import { el, clear, text, listen } from './lib/dom.js';
-import { timeScale } from './lib/scale.js';
+import { timeScale, settleView, followNow } from './lib/scale.js';
 import { applyFilters, defaultFilters } from './lib/layout.js';
 import { emptyHint } from './lib/filterModel.js';
 import { createChart, LABEL_W } from './render/chart.js';
@@ -74,7 +74,7 @@ export function mount(root, api) {
       onHover: (lines, x, y) => showTooltip(chart.overlay, lines, x, y),
       onLeave: () => hideTooltip(chart.overlay),
       onBrush: (active) => { brushing = active; if (!active && stale) { stale = false; render(); } },
-      onView: (s) => { state.view = { from: s.from, to: s.to }; render(); },
+      onView: (s) => { state.view = settleView(s, p.window, state.payload.window); render(); },
     });
     renderDetails(details, state.selected && Object.hasOwn(p.sessions, state.selected) ? p.sessions[state.selected] : null);
   }
@@ -93,6 +93,7 @@ export function mount(root, api) {
     }
     prevTypes = new Set(p.linkTypes);
     state.payload = p;
+    if (state.view?.live) state.view = followNow(state.view, p.window);
     render();
   }
   let prevTypes = new Set();
