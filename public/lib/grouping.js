@@ -1,6 +1,8 @@
 // Pure row grouping: payload trees + sessions + selection → ordered rows (no `y`).
-// Order: project → conductor → section lead → worker. A project's band holds, per tree, the conductor
-// header, then its section-lead headers and the workers of that project at their tree depth.
+// Order: project → conductor → section lead → worker. Every row carries `section`, the id of its owner.
+// Project band: per tree, the conductor's own section (a conductor copy, its direct workers), then one
+// section per lead by lead start (a conductor copy → the lead → its workers), each under its own root copy.
+// Conductor band: conductor → leads, nested and interleaved by tree order; one section per tree.
 
 /** Label for the conductor project's band and menu item. */
 export const CONDUCTOR_LABEL = 'Conductor';
@@ -86,10 +88,8 @@ function entriesOf(tree, base, sessions, sel) {
 function insert(trie, entry, rootId) {
   const path = LEVELS.flatMap((level) => (level === 'project' ? [{ project: entry.project }] : entry.chain));
   let node = trie.get(entry.project) ?? trie.set(entry.project, { children: new Map(), unit: [] }).get(entry.project);
-  const names = [entry.project];
   for (const step of path.slice(1)) {
-    names.push(step.id);
-    if (!node.children.has(step.id)) node.children.set(step.id, { ...step, children: new Map(), unit: [], names: [...names], rootId });
+    if (!node.children.has(step.id)) node.children.set(step.id, { ...step, children: new Map(), unit: [], rootId });
     node = node.children.get(step.id);
   }
   node.unit.push(...entry.unit);
@@ -106,29 +106,40 @@ export function groupRows(trees, sessions, sel) {
   }
 
   const out = [];
-  const emitNode = (node, project) => {
-    const s = sessions[node.id];
-    out.push({
-      kind: 'row', key: `r:${node.names.join('/')}`, id: node.id, depth: node.depth,
-      context: node.role === 'conductor' || s.project !== project, head: node.role, group: project, rootId: node.rootId,
-    });
-    const items = [
-      ...[...node.children.values()].map((n) => ({ order: n.order, node: n })),
-      ...node.unit.map((u) => ({ order: u.order, unit: u })),
-    ].sort((a, b) => a.order - b.order);
+  const byOrder = (xs) => [...xs].sort((a, b) => a.order - b.order);
+  const header = (node, project, section) => out.push({
+    kind: 'row', key: `r:${project}/${section}/${node.id}`, id: node.id, depth: node.depth,
+    context: node.role === 'conductor' || sessions[node.id].project !== project, head: node.role, group: project, rootId: node.rootId, section,
+  });
+  const unitRow = (u, rootId, project, section) => out.push({
+    kind: 'row', key: `r:${project}/${section}/${u.id}`, id: u.id, depth: u.depth,
+    context: sessions[u.id].project !== project, group: project, rootId, section,
+  });
+  // Conductor band: children and units interleaved by tree order
+  const emitNested = (node, project, section) => {
+    header(node, project, section);
+    const items = [...[...node.children.values()].map((n) => ({ order: n.order, node: n })), ...node.unit.map((u) => ({ order: u.order, unit: u }))]
+      .sort((a, b) => a.order - b.order);
     for (const it of items) {
-      if (it.node) { emitNode(it.node, project); continue; }
-      const u = it.unit;
-      out.push({
-        kind: 'row', key: `r:${node.names.join('/')}/${u.id}`, id: u.id, depth: u.depth,
-        context: sessions[u.id].project !== project, group: project, rootId: node.rootId,
-      });
+      if (it.node) emitNested(it.node, project, section);
+      else unitRow(it.unit, node.rootId, project, section);
+    }
+  };
+  // Project band: one section per owner, each under its own root copy; the root's own section first
+  const emitSections = (root, project) => {
+    if (root.unit.length) {
+      header(root, project, root.id);
+      for (const u of byOrder(root.unit)) unitRow(u, root.rootId, project, root.id);
+    }
+    for (const lead of byOrder(root.children.values())) {
+      header(root, project, lead.id);
+      emitNested(lead, project, lead.id);
     }
   };
   for (const project of sortProjects(trie.keys(), sel.conductorProject)) {
     out.push({ kind: 'band', key: `p:${project}`, project, label: projectLabel(project, sel.conductorProject) });
     const roots = [...trie.get(project).children.values()].sort((a, b) => a.order - b.order);
-    for (const r of roots) emitNode(r, project);
+    for (const r of roots) (project === sel.conductorProject ? emitNested(r, project, r.id) : emitSections(r, project));
   }
   return out;
 }

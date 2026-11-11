@@ -22,12 +22,14 @@ const sig = (rows) => rows.map((r) => (r.kind === 'band'
   ? `band:${r.project}:${r.label}`
   : `${r.id}:${r.depth}:${[r.context ? 'ctx' : 'home', r.head].filter(Boolean).join('+')}:${r.group}`));
 
-test('rows are project → conductor → section lead → worker, with headers repeated per project', () => {
+// Invariant: project bands hold one section per owner (the conductor's own, then each lead), each under its own root copy.
+test('rows are project → conductor → section lead → worker, one root copy per section in project bands', () => {
   assert.deepEqual(sig(groupRows(trees(), sessions(), sel())), [
     'band:.conduct:Conductor',
     'c:0:ctx+conductor:.conduct', 'l1:1:home+lead:.conduct', 'l2:1:home+lead:.conduct',
     'band:alpha:alpha',
-    'c:0:ctx+conductor:alpha', 'l1:1:ctx+lead:alpha', 'w1:2:home:alpha', 'd1:1:home:alpha',
+    'c:0:ctx+conductor:alpha', 'd1:1:home:alpha',
+    'c:0:ctx+conductor:alpha', 'l1:1:ctx+lead:alpha', 'w1:2:home:alpha',
     'band:beta:beta',
     'c:0:ctx+conductor:beta', 'l1:1:ctx+lead:beta', 'w2:2:home:beta',
   ]);
@@ -84,7 +86,7 @@ test('Conductors filter drops whole trees', () => {
 
 test('Projects filter drops units and the lead self-entries of unselected projects; leads stay as context headers', () => {
   const rows = groupRows(trees(), sessions(), sel({ projects: new Set(['alpha']) }));
-  assert.deepEqual(sig(rows), ['band:alpha:alpha', 'c:0:ctx+conductor:alpha', 'l1:1:ctx+lead:alpha', 'w1:2:home:alpha', 'd1:1:home:alpha']);
+  assert.deepEqual(sig(rows), ['band:alpha:alpha', 'c:0:ctx+conductor:alpha', 'd1:1:home:alpha', 'c:0:ctx+conductor:alpha', 'l1:1:ctx+lead:alpha', 'w1:2:home:alpha']);
   const cond = groupRows(trees(), sessions(), sel({ projects: new Set([CP]) }));
   assert.deepEqual(sig(cond), ['band:.conduct:Conductor', 'c:0:ctx+conductor:.conduct', 'l1:1:home+lead:.conduct', 'l2:1:home+lead:.conduct']);
 });
@@ -112,7 +114,8 @@ test('time filter keeps a lead’s Conductor row while the lead overlaps or has 
   assert.equal(rows[0].label, 'Conductor');
 });
 
-test('a unit row of the conductor interleaves with lead headers by tree order', () => {
+// Invariant: the Conductor band keeps its nesting, interleaving by tree order.
+test('in the Conductor band a unit row of the conductor interleaves with lead headers by tree order (the Conductor band keeps its nesting)', () => {
   const t = [{ rootId: 'r', rows: [row('r', 0, 'conductor'), row('l1', 1, 'lead'), row('d', 1, 'worker'), row('l2', 1, 'lead')] }];
   const rows = groupRows(t, { r: S('r'), l1: S('l1', CP), d: S('d', CP), l2: S('l2', CP) }, sel());
   assert.deepEqual(rows.filter((r) => r.kind === 'row').map((r) => r.id), ['r', 'l1', 'd', 'l2']);
@@ -137,4 +140,74 @@ test('treeProjects lists the projects of each tree’s non-root rows that overla
   ss.w2 = S('w2', 'beta', 20_000, 30_000);
   const m = treeProjects({ trees: trees(), sessions: ss, window: { from: 0, to: NOW }, now: NOW });
   assert.deepEqual([...m.get('c')].sort(), [CP, 'alpha']);
+});
+
+// ---- sections: one root copy per section in project bands ----
+const coreTrees = () => [{ rootId: 'c', rows: [
+  row('c', 0, 'conductor'), row('d1', 1, 'worker'),
+  row('l1', 1, 'lead'), row('a1', 2, 'worker'), row('a2', 2, 'worker'),
+  row('l2', 1, 'lead'), row('b1', 2, 'worker'), row('b2', 2, 'worker'),
+  row('d2', 1, 'worker'),
+] }];
+const coreSessions = (over = {}) => ({
+  ...Object.fromEntries([
+    S('c', CP), S('l1', CP), S('l2', CP),
+    ...['d1', 'd2', 'a1', 'a2', 'b1', 'b2'].map((id) => S(id, 'alpha')),
+  ].map((s) => [s.id, s])), ...over,
+});
+const ssig = (rows) => rows.map((r) => (r.kind === 'band'
+  ? `band:${r.project}:${r.label}`
+  : `${r.id}:${r.depth}:${[r.context ? 'ctx' : 'home', r.head].filter(Boolean).join('+')}:${r.group}@${r.section}`));
+const CORE_ALPHA = [
+  'band:alpha:alpha',
+  'c:0:ctx+conductor:alpha@c', 'd1:1:home:alpha@c', 'd2:1:home:alpha@c',
+  'c:0:ctx+conductor:alpha@l1', 'l1:1:ctx+lead:alpha@l1', 'a1:2:home:alpha@l1', 'a2:2:home:alpha@l1',
+  'c:0:ctx+conductor:alpha@l2', 'l2:1:ctx+lead:alpha@l2', 'b1:2:home:alpha@l2', 'b2:2:home:alpha@l2',
+];
+const inGroup = (rows, g) => rows.filter((r) => r.kind === 'row' && r.group === g);
+
+test('in a project band each section lead gets its own copy of the root: root → lead → that lead’s workers', () => {
+  assert.deepEqual(ssig(groupRows(coreTrees(), coreSessions(), sel())), [
+    'band:.conduct:Conductor',
+    'c:0:ctx+conductor:.conduct@c', 'l1:1:home+lead:.conduct@c', 'l2:1:home+lead:.conduct@c',
+    ...CORE_ALPHA,
+  ]);
+});
+
+test('the conductor’s direct workers form the band’s first section, under their own root copy, with no lead level, whatever their start', () => {
+  const rows = inGroup(groupRows(coreTrees(), coreSessions(), sel()), 'alpha');
+  const own = rows.filter((r) => r.section === 'c');
+  assert.deepEqual(own.map((r) => [r.id, r.depth]), [['c', 0], ['d1', 1], ['d2', 1]]);
+  assert.equal(rows.indexOf(own[0]), 0);
+  assert.equal(rows.some((r) => r.head === 'lead' && r.section === 'c'), false);
+});
+
+test('a band where the root has no direct workers has no conductor-own section; a lead with no workers in a band has no section there', () => {
+  const ss = coreSessions({ d1: S('d1', 'beta'), d2: S('d2', 'beta'), a1: S('a1', 'alpha'), b1: S('b1', 'beta'), b2: S('b2', 'beta') });
+  const rows = groupRows(coreTrees(), ss, sel());
+  const alpha = inGroup(rows, 'alpha');
+  assert.equal(alpha.filter((r) => r.head === 'conductor').length, 1);
+  assert.deepEqual([...new Set(alpha.map((r) => r.section))], ['l1']);
+  const beta = inGroup(rows, 'beta');
+  assert.deepEqual([...new Set(beta.map((r) => r.section))], ['c', 'l2']);
+  assert.equal(beta.filter((r) => r.head === 'conductor').length, 2);
+});
+
+test('row keys stay unique when the root repeats in a band; every row carries rootId and section', () => {
+  const rows = groupRows(coreTrees(), coreSessions(), sel()).filter((r) => r.kind === 'row');
+  assert.equal(new Set(rows.map((r) => r.key)).size, rows.length);
+  assert.ok(rows.every((r) => r.rootId === 'c' && typeof r.section === 'string'));
+});
+
+test('with Conductor deselected the lead sections stay in the project bands', () => {
+  assert.deepEqual(ssig(groupRows(coreTrees(), coreSessions(), sel({ projects: new Set(['alpha']) }))), CORE_ALPHA);
+});
+
+test('time filter drops a section whose workers all fall outside the window, and its root copy with it', () => {
+  const ss = coreSessions({ b1: S('b1', 'alpha', 100, 200), b2: S('b2', 'alpha', 100, 200) });
+  const rows = groupRows(coreTrees(), ss, sel({ from: 700, to: 1000 }));
+  const alpha = inGroup(rows, 'alpha');
+  assert.deepEqual([...new Set(alpha.map((r) => r.section))], ['c', 'l1']);
+  assert.equal(alpha.filter((r) => r.head === 'conductor').length, 2);
+  assert.ok(rows.some((r) => r.id === 'l2' && r.group === CP), 'l2 still overlaps, so it stays in Conductor');
 });

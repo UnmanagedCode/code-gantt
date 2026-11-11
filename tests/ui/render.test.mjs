@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { PROMPT_SENTINEL as S } from '../helpers/sentinel.mjs';
+import { ROW_H } from '../../public/lib/layout.js';
 
 const win = new Window({ url: 'http://localhost/', width: 1200, height: 800 });
 for (const k of ['document', 'Node', 'Element', 'Event', 'MouseEvent', 'KeyboardEvent', 'PointerEvent']) globalThis[k] = win[k];
@@ -1205,12 +1206,28 @@ test('the conductor project renders as a Conductor band holding the conductor an
   const labels = [...root.querySelectorAll('.row-label')].map((n) => [n.textContent, n.classList.contains('head'), n.classList.contains('context')]);
   assert.deepEqual(labels, [
     ['Boss', true, true], ['Lead one', true, false], ['Lead two', true, false],
-    ['Boss', true, true], ['Lead one', true, true], ['w1', false, false], ['Direct', false, false],
+    ['Boss', true, true], ['Direct', false, false], ['Boss', true, true], ['Lead one', true, true], ['w1', false, false],
   ]);
   assert.ok(root.querySelector('.link-g[data-type="send_prompt"][data-from="c"][data-to="l1"]'), 'conductor → lead is drawn');
   const sel = '.link-g[data-type="send_prompt"][data-from="c"][data-to="l1"]';
   assert.equal(root.querySelectorAll(`${sel}:not(.link-stub)`).length, 2, 'the root → lead link is also drawn in the lead’s project band, as a normal line');
   assert.equal(root.querySelectorAll('.link-stub[data-from="c"]').length, 0);
+});
+
+// Invariant: the layout's per-section root ↔ lead lines reach the DOM as normal links, one row long inside their section.
+test('each section’s root ↔ lead line renders inside that section, one row long', async () => {
+  const p = leadsPayload();
+  p.trees[0].rows.splice(4, 0, { id: 'w2', depth: 2, role: 'worker' });
+  p.sessions.w2 = { ...p.sessions.w1, id: 'w2' };
+  p.links.push({ ts: 2500, type: 'send_prompt', from: 'c', to: 'l2' });
+  const { root, app } = boot(p);
+  await app.load();
+  const labels = [...root.querySelectorAll('.row-label')].map((n) => n.textContent);
+  assert.equal(labels.filter((t) => t === 'Boss').length, 4, 'one in Conductor, three in alpha');
+  const lines = [...root.querySelectorAll('.link-g:not(.link-stub)[data-from="c"][data-to="l2"]')];
+  assert.equal(lines.length, 2);
+  const spans = lines.map((g) => Math.abs(Number(g.querySelector('.link').getAttribute('y2')) - Number(g.querySelector('.link').getAttribute('y1'))));
+  assert.ok(spans.includes(ROW_H));
 });
 
 test('a link between rows of different groups renders a stub with a ring at each end and no line; hovering names the other end and its group', async () => {

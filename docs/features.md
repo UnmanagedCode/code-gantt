@@ -8,9 +8,9 @@
   - *Section lead*: a depth-1 session whose `project` is the payload's `conductorProject` (`.conduct`), with or without workers.
   - *Worker*: every other session, including a `.conduct` session below depth 1.
 - **Project bands:** a worker belongs to the band of its `project`. Bands sort by name, the conductor project first, labelled **Conductor** (also in the Projects menu). Under Conductor sit only the roots that have section leads, with their lead headers; a lead with no workers still shows there.
-- **Headers repeat per band:** a conductor header (bold) appears in every band holding rows of its tree. A section lead appears in Conductor (its own row) and as a dimmed copy in each project band it drives. Workers sit at their tree depth under their lead (or under the conductor header, for the conductor's own workers).
+- **Sections:** in a project band each tree shows the conductor's own section (a dimmed conductor copy with its direct workers), then one section per section lead: a conductor copy → the lead (a dimmed copy) → its workers. Every section starts with its own conductor copy. The Conductor band nests conductor → leads instead. A section exists only while it has a kept worker.
 - **Context rows** (italic, dimmed): a conductor, a lead copy, or a worker ancestor whose `project` is not the band's, kept so the tree keeps its structure.
-- Within a band, trees follow tree start order; under a header, lead headers and workers follow tree start order. Nesting has no depth limit.
+- Order: trees by start; per tree in a project band, the conductor's own section first, then lead sections by lead start; rows within a section by tree start order. Nesting has no depth limit.
 
 ## Bars
 
@@ -31,11 +31,11 @@ Bar content:
 
 ## Links
 
-Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. A link is drawn only inside one band:
+Vertical connector at the event time from source row to target row, ending in a dot on the target; hover the dot for type and endpoints. A link is drawn only inside one section — one tree's rows in a band (in the Conductor band, one tree's block):
 
-- **Which band:** among the bands holding rows for both ends, the one where most ends have their own (non-dimmed) row; ties go to the first band. In it each end uses its own row, else its first row.
-- **Exception — root ↔ its own section lead** (either direction): also drawn in every other band holding both, i.e. each project band the lead drives, between the dimmed root and lead copies. Never in a band the lead does not drive, and never stubbed.
-- **Stubs:** when both ends are drawn but no band holds both, no line is drawn. Each end gets a short stub at the event time (`STUB_PX` long, pointing toward the other end's row) ending in a hollow ring; the target end keeps its dot. The stub sits on the end's own row, else its topmost dimmed copy. Hover the ring: the usual tooltip plus `<other end> — in <band>, not drawn here`.
+- **Which section:** among the sections holding rows for both ends, the one where most ends have their own (non-dimmed) row; ties go to the first. In it each end uses its own row, else its first row. The conductor belongs to every section of its tree, so a conductor → a lead's worker link is drawn in that lead's section.
+- **Exception — root ↔ its own section lead** (either direction): also drawn in each of the lead's own sections, between that section's conductor copy and the lead below it. Never in another lead's section, and never stubbed.
+- **Stubs:** when both ends are drawn but no section holds both, no line is drawn. This covers links across sections of one band (a lead's worker → another lead, a conductor's direct worker → a lead) and across trees. Each end gets a short stub at the event time (`STUB_PX` long, pointing toward the other end's row) ending in a hollow ring; the target end keeps its dot. The stub sits on the end's own row, else its topmost dimmed copy. Hover the ring: the usual tooltip plus `<other end> — in <band>, not drawn here`.
 - An end that is filtered out or outside the time range draws neither a line nor a stub. The type, heartbeat and legend filters hide stubs with their link.
 
 The tooltip of either line of a forwarded prompt names sender → target and `forwarding <source>`. Types are the payload's `linkTypes`; colours are defined per type in `public/style.css`.

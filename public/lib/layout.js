@@ -15,10 +15,13 @@ export function defaultFilters(payload) {
   };
 }
 
+/** A section is one owner's rows in one band; a link line never leaves it. */
+const sectionOf = (r) => `${r.group}/${r.section}`;
+
 /** Row anchor of a link end: its own (non-context) row, else the first (topmost) copy. */
-const anchor = (rows, group) => {
-  const inGroup = group === undefined ? rows : rows.filter((r) => r.group === group);
-  return inGroup.find((r) => !r.context) ?? inGroup[0];
+const anchor = (rows, sec) => {
+  const inSec = sec === undefined ? rows : rows.filter((r) => sectionOf(r) === sec);
+  return inSec.find((r) => !r.context) ?? inSec[0];
 };
 
 export function applyFilters(payload, f) {
@@ -46,23 +49,23 @@ export function applyFilters(payload, f) {
     const a = rowsOf.get(l.from);
     const b = rowsOf.get(l.to);
     if (!a || !b) return;
-    // the groups holding both ends; the line goes in the one where most ends have their own row, ties to the first in row order
-    const shared = [...new Set(a.map((r) => r.group))].filter((g) => b.some((r) => r.group === g));
+    // the sections holding both ends; the line goes in the one where most ends have their own row, ties to the first in row order
+    const shared = [...new Set(a.map(sectionOf))].filter((sec) => b.some((r) => sectionOf(r) === sec));
     let best = null;
     let bestHome = -1;
-    for (const g of shared) {
-      const home = [a, b].filter((rs) => rs.some((r) => r.group === g && !r.context)).length;
-      if (home > bestHome) { best = g; bestHome = home; }
+    for (const sec of shared) {
+      const home = [a, b].filter((rs) => rs.some((r) => sectionOf(r) === sec && !r.context)).length;
+      if (home > bestHome) { best = sec; bestHome = home; }
     }
     if (best != null) {
       links.push({ ...l, key: `l:${i}`, y1: centre(anchor(a, best)), y2: centre(anchor(b, best)) });
-      // a root and its own section lead are repeated as context headers in each of the lead's project bands: draw the link there too
+      // a root and its own section lead are repeated in each of the lead's sections: draw the link there too
       if (rootLead(a[0], b[0]) || rootLead(b[0], a[0])) {
-        for (const g of shared) if (g !== best) links.push({ ...l, key: `l:${i}:${g}`, y1: centre(anchor(a, g)), y2: centre(anchor(b, g)) });
+        for (const sec of shared) if (sec !== best) links.push({ ...l, key: `l:${i}:${sec}`, y1: centre(anchor(a, sec)), y2: centre(anchor(b, sec)) });
       }
       return;
     }
-    // no shared group: no line, a stub at each end pointing at the other end's row
+    // no shared section: no line, a stub at each end pointing at the other end's row
     const ra = anchor(a);
     const rb = anchor(b);
     const stub = (end, own, other) => ({
