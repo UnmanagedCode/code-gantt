@@ -763,8 +763,8 @@ test('a non-primary pointerdown starts no band', async () => {
 });
 
 // happy-dom's WheelEvent ignores clientX, ctrlKey and metaKey in its init dict, so they are defined on the event.
-function wheelAt(node, clientX, { ctrlKey = false, metaKey = false } = {}) {
-  const e = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+function wheelAt(node, clientX, { ctrlKey = false, metaKey = false, deltaY = -100 } = {}) {
+  const e = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY });
   for (const [k, value] of Object.entries({ clientX, ctrlKey, metaKey })) Object.defineProperty(e, k, { value });
   node.dispatchEvent(e);
   return e;
@@ -1263,4 +1263,118 @@ test('forward stubs are painted beneath the other links', async () => {
   const firstOther = gs.findIndex((g) => g.getAttribute('data-type') !== 'forward');
   const lastForward = gs.map((g) => g.getAttribute('data-type')).lastIndexOf('forward');
   assert.ok(lastForward >= 0 && firstOther >= 0 && lastForward < firstOther);
+});
+
+// --- live-anchored zoom ---
+const payloadAt = (to) => payload({ now: to, window: { from: 0, to } });
+function bootLive(to) {
+  let current = payloadAt(to);
+  document.body.replaceChildren();
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const app = mount(host, { getJson: async () => current, subscribe: null });
+  return { host, app, reload: async (t) => { current = payloadAt(t); await app.load(); } };
+}
+const PLOT_W = 836;
+
+test('a brush up to the right edge is live: a reload grows it to the new right edge and keeps its left edge', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  drag(host, 100, PLOT_W + 10);
+  ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
+  const before = app.state.view;
+  assert.equal(before.live, true);
+  assert.equal(before.to, 10_000);
+  await reload(20_000);
+  assert.equal(app.state.view.from, before.from);
+  assert.equal(app.state.view.to, 20_000);
+  assert.equal(app.state.view.live, true);
+});
+
+test('a brush ending in the past stays frozen across a reload', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  drag(host, 100, 300);
+  ptr(hitOf(host), 'pointerup', LABEL_W + 300);
+  const before = { ...app.state.view };
+  assert.equal(before.live, false);
+  await reload(20_000);
+  assert.deepEqual(app.state.view, before);
+});
+
+test('wheel zoom: at the right edge stays live, left of it freezes, zooming out to the edge is live again', async () => {
+  const { host, app } = bootLive(10_000);
+  await app.load();
+  const zoom = (x, deltaY) => wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + x, { deltaY });
+  zoom(PLOT_W, -100);
+  assert.equal(app.state.view.live, true);
+  assert.equal(app.state.view.to, 10_000);
+  zoom(PLOT_W / 2, -100);
+  assert.equal(app.state.view.live, false);
+  zoom(0, 100);
+  assert.equal(app.state.view.live, true);
+  assert.equal(app.state.view.to, 10_000);
+});
+
+test('panning a live view into the past freezes it; panning back to the right edge makes it live', async () => {
+  const { host, app } = bootLive(10_000);
+  await app.load();
+  wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + PLOT_W, { deltaY: -100 });
+  assert.equal(app.state.view.live, true);
+  const mouse = (node, type, x) => node.dispatchEvent(new win.MouseEvent(type, { bubbles: true, clientX: x }));
+  mouse(sq(host, 'rect.plot-bg'), 'mousedown', 500);
+  mouse(sq(host, 'svg.chart'), 'mousemove', 520);
+  assert.equal(app.state.view.live, false);
+  mouse(sq(host, 'svg.chart'), 'mousemove', 100);
+  assert.equal(app.state.view.live, true);
+  assert.equal(app.state.view.to, 10_000);
+  mouse(sq(host, 'svg.chart'), 'mouseup', 100);
+});
+
+test('Reset zoom and a Range change give the default view, which still tracks the window across reloads', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  drag(host, 100, PLOT_W + 10);
+  ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
+  click(host.querySelector('button[name="reset-zoom"]'));
+  assert.equal(app.state.view, null);
+  await reload(20_000);
+  assert.equal(app.state.view, null);
+  drag(host, 100, PLOT_W + 10);
+  ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
+  const sel = host.querySelector('select[name=range]');
+  sel.value = [...sel.options].find((o) => o.value !== String(app.state.rangeMs)).value;
+  sel.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(app.state.view, null);
+  await new Promise((r) => setTimeout(r, 0));
+  await reload(30_000);
+  assert.equal(app.state.view, null);
+});
+
+test('a reload during a brush to the right edge commits a live view ending at the new right edge', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  drag(host, 100, PLOT_W + 10);
+  await reload(20_000);
+  assert.equal(app.state.view, null);
+  ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
+  const v = app.state.view;
+  assert.equal(v.live, true);
+  assert.equal(v.to, 20_000);
+  assert.ok(Math.abs(v.from - (100 / PLOT_W) * 10_000) < 1);
+});
+
+test('a live view whose left edge the window slides past becomes the default view', async () => {
+  let current = payloadAt(10_000);
+  document.body.replaceChildren();
+  const h = document.createElement('div');
+  document.body.appendChild(h);
+  const app = mount(h, { getJson: async () => current, subscribe: null });
+  await app.load();
+  drag(h, 100, PLOT_W + 10);
+  ptr(hitOf(h), 'pointerup', LABEL_W + PLOT_W + 10);
+  assert.equal(app.state.view.live, true);
+  current = payload({ now: 20_000, window: { from: 5000, to: 20_000 } });
+  await app.load();
+  assert.equal(app.state.view, null);
 });

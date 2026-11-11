@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timeScale, zoomAt, pan, ticks, readout, READOUT_SECONDS_MS_PER_PX, brushView, brushSpan, BRUSH_MIN_PX, MIN_SPAN_MS } from '../../public/lib/scale.js';
+import { timeScale, zoomAt, pan, ticks, readout, READOUT_SECONDS_MS_PER_PX, brushView, brushSpan, BRUSH_MIN_PX, MIN_SPAN_MS, LIVE_EDGE_PX, settleView, followNow } from '../../public/lib/scale.js';
 
 const bounds = { from: 0, to: 1_000_000 };
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} !~ ${b}`);
@@ -143,4 +143,43 @@ test('tick labels: daily steps show MM-DD, sub-day steps HH:MM except at local m
   assert.deepEqual(labels(day, day + 86_400_000), ['01-05', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00', '01-06']);
   const hour = new Date(2026, 0, 5, 13, 0, 0).getTime();
   assert.deepEqual(labels(hour, hour + 3_600_000), ['13:00', '13:15', '13:30', '13:45', '14:00']);
+});
+
+test('zoomAt with the cursor within LIVE_EDGE_PX of the right edge keeps the right edge', () => {
+  const s = timeScale(200_000, 600_000, 800);
+  near(zoomAt(s, 800 - LIVE_EDGE_PX, 2, bounds).to, s.to);
+  near(zoomAt(s, 810, 2, bounds).to, s.to);
+  assert.ok(zoomAt(s, 800 - LIVE_EDGE_PX - 1, 2, bounds).to < s.to - 1);
+});
+
+test('brushView ending within LIVE_EDGE_PX of the right edge ends at the right edge', () => {
+  const s = timeScale(200_000, 600_000, 800);
+  near(brushView(s, 100, 800 - LIVE_EDGE_PX, bounds).to, s.to);
+  assert.ok(brushView(s, 100, 800 - LIVE_EDGE_PX - 1, bounds).to < s.to - 1);
+});
+
+test("settleView: a view at the gesture bounds' right edge is live and ends at the current window's right edge", () => {
+  const s = timeScale(200_000, 1_000_000, 800);
+  const live = settleView(s, bounds, bounds);
+  assert.deepEqual(live, { from: 200_000, to: 1_000_000, live: true });
+  const later = { from: 0, to: 1_005_000 };
+  assert.deepEqual(settleView(s, bounds, later), { from: 200_000, to: 1_005_000, live: true });
+});
+
+test('settleView: a view more than half a pixel short of the right edge is frozen and kept as given', () => {
+  const s = timeScale(200_000, 900_000, 800);
+  assert.deepEqual(settleView(s, bounds, bounds), { from: 200_000, to: 900_000, live: false });
+});
+
+test('settleView after a one-pixel pan off the live edge is frozen; panning back is live', () => {
+  const s = timeScale(200_000, 1_000_000, 800);
+  assert.equal(settleView(pan(s, 1, bounds), bounds, bounds).live, false);
+  assert.equal(settleView(pan(s, -1e9, bounds), bounds, bounds).live, true);
+});
+
+test('followNow keeps the left edge and moves the right edge; a left edge at or before window.from gives null', () => {
+  const w = { from: 0, to: 2_000_000 };
+  assert.deepEqual(followNow({ from: 300_000, to: 1_000_000 }, w), { from: 300_000, to: 2_000_000, live: true });
+  assert.equal(followNow({ from: 0, to: 1_000_000 }, w), null);
+  assert.equal(followNow({ from: 100, to: 1_000_000 }, { from: 500, to: 2_000_000 }), null);
 });

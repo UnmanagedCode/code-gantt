@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BROWSER } from './resolve.mjs';
+import { evConfig } from '../../tests/helpers/store.mjs';
 import { buildFixture } from './fixture-store.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -239,6 +240,58 @@ try {
     assert.equal(await page.locator('.brush-band').count(), 0, 'band removed after release');
     await page.screenshot({ path: path.join(shots, '06c-brush-zoomed.png'), fullPage: true });
     await page.click('button[name="reset-zoom"]');
+
+    // Live-anchored zoom: a view that reaches the right edge grows on update; one that ends in the past stays frozen.
+    {
+      const plotLeft = scaleBox.x + 250;
+      const brushTo = async (fromPx) => {
+        await page.mouse.move(plotLeft + fromPx, scaleBox.y + 15);
+        await page.mouse.down();
+        await page.mouse.move(scaleBox.x + scaleBox.width - 2, scaleBox.y + 15, { steps: 5 });
+        await page.mouse.up();
+      };
+      const edgeReadouts = async () => {
+        const out = [];
+        for (const dx of [2, scaleBox.width - 250 - 20]) {
+          await page.mouse.move(plotLeft + dx, scaleBox.y + 15);
+          await page.waitForSelector('g.crosshair text');
+          out.push(await page.locator('g.crosshair text').textContent());
+        }
+        await page.mouse.move(5, 5);
+        return out;
+      };
+      const reload = async (n) => {
+        const resp = page.waitForResponse((r) => r.url().includes('api/gantt'), { timeout: 10_000 });
+        store.appendEvents(evConfig(Date.now(), 'a0000005', `live-edge-${n}`));
+        await resp;
+        await page.waitForTimeout(300); // let the render land
+      };
+      await brushTo(10);
+      // brush in until the span is minutes, so the readout resolves seconds
+      for (let i = 0; i < 10; i++) {
+        await brushTo(500);
+        await page.waitForSelector('.brush-band', { state: 'detached' });
+        if (/\d\d:\d\d:\d\d$/.test((await edgeReadouts())[1])) break;
+      }
+      const live0 = await edgeReadouts();
+      await reload(1);
+      const live1 = await edgeReadouts();
+      assert.equal(live1[0], live0[0], 'live view keeps its left edge');
+      assert.notEqual(live1[1], live0[1], 'live view right edge advances');
+      await page.screenshot({ path: path.join(shots, '06d-live-edge-grown.png'), fullPage: true });
+
+      const svgBox2 = await page.locator('svg.chart').boundingBox();
+      await page.mouse.move(svgBox2.x + 400, svgBox2.y + 150);
+      await page.mouse.down();
+      await page.mouse.move(svgBox2.x + 500, svgBox2.y + 150, { steps: 5 });
+      await page.mouse.up();
+      const frozen0 = await edgeReadouts();
+      await reload(2);
+      const frozen1 = await edgeReadouts();
+      assert.deepEqual(frozen1, frozen0, 'a view panned into the past stays frozen');
+      await page.screenshot({ path: path.join(shots, '06e-frozen.png'), fullPage: true });
+      await page.click('button[name="reset-zoom"]');
+    }
 
     await page.click('button[name="filter:projects"]');
     await page.uncheck('input[name="project:beta"]');
