@@ -32,6 +32,14 @@ try {
     await page.waitForSelector('svg.chart .link-g');
     await page.waitForFunction(() => !document.querySelector('.banner')?.textContent);
     await page.waitForTimeout(600); // let SSE-triggered reloads settle
+    // payload.now is a few ms past window.to in a real browser: the line must still be drawn, at the plot's right edge
+    const nowLine = page.locator('svg.chart line.now');
+    assert.equal(await nowLine.count(), 1, 'the default view draws one now line');
+    {
+      const svgB = await page.locator('svg.chart').boundingBox();
+      const lb = await nowLine.boundingBox();
+      assert.ok(Math.abs(lb.x - (svgB.x + svgB.width - 14)) <= 1, `the now line sits at the plot's right edge (${lb.x})`);
+    }
     await page.screenshot({ path: path.join(shots, '01-load.png'), fullPage: true });
 
     // The horizon: the tree wholly before it is absent; bars spanning it start at it.
@@ -283,6 +291,7 @@ try {
       // the left readout is 2px inside the edge, so the growing span moves it by milliseconds: compare to ±1 s
       assert.ok(Math.abs(secOf(live1[0]) - secOf(live0[0])) <= 1, `live view keeps its left edge (${live0[0]} → ${live1[0]})`);
       assert.ok(secOf(live1[1]) - secOf(live0[1]) >= 1, `live view right edge advances (${live0[1]} → ${live1[1]})`);
+      assert.equal(await page.locator('svg.chart line.now').count(), 1, 'a live view keeps its now line');
       await page.screenshot({ path: path.join(shots, '06d-live-edge-grown.png'), fullPage: true });
 
       const svgBox2 = await page.locator('svg.chart').boundingBox();
@@ -294,6 +303,7 @@ try {
       await reload(2);
       const frozen1 = await edgeReadouts();
       assert.deepEqual(frozen1, frozen0, 'a view panned into the past stays frozen');
+      assert.equal(await page.locator('svg.chart line.now').count(), 0, 'a frozen view has no now line');
       await page.screenshot({ path: path.join(shots, '06e-frozen.png'), fullPage: true });
       await page.click('button[name="reset-zoom"]');
     }

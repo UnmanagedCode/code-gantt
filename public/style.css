@@ -90,7 +90,7 @@ button, select { font: inherit; color: inherit; background: var(--card); border:
 .row-label.head { font-weight: 600; }
 .row-label.context { fill: var(--muted-foreground); font-style: italic; }
 .grid { stroke: var(--grid); }
-.now { stroke: var(--destructive); stroke-dasharray: 3 3; }
+.now { stroke: var(--destructive); stroke-dasharray: 3 3; pointer-events: none; }
 
 .bar { fill: var(--bar); stroke: var(--turn); stroke-width: 1; }
 .bar-live { stroke: var(--success); stroke-width: 2; }
