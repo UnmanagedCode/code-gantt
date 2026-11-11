@@ -51,7 +51,7 @@ try {
     for (const s of Object.values(p.sessions)) assert.deepEqual(Object.keys(s).filter((k) => !SESSION_KEYS.has(k)), [], 'session keys');
     for (const l of p.links) assert.deepEqual(Object.keys(l).filter((k) => !LINK_KEYS.has(k)), [], 'link keys');
   }
-  // Links are drawn inside one band; a link whose ends share no band is stubs, never a line across bands.
+  // Links are drawn inside one section, and a section lies within one band; a link whose ends share no section is stubs, so no line spans two bands.
   const layout = applyFilters(wide, defaultFilters(wide));
   const bands = layout.rows.filter((r) => r.kind === 'band').map((r) => r.y);
   const bandOf = (y) => bands.filter((b) => b <= y).length - 1;

@@ -137,7 +137,7 @@ try {
       clip: { x: Math.max(0, fbZ.x - 90), y: Math.max(0, fbZ.y - 110), width: 180, height: 160 } });
     await page.click('button[name="reset-zoom"]');
 
-    // Section leads: a Conductor band, lead headers repeated per project, links only inside a group, stubs across groups.
+    // Section leads: Conductor band, one section per lead in project bands, links only inside a section, stubs across sections.
     const groupsOf = () => page.evaluate(() => {
       const bands = [...document.querySelectorAll('.project-label')].map((n) => ({ name: n.textContent, y: n.getBoundingClientRect().y }));
       const bars = [...document.querySelectorAll('.bar-g')].map((g) => ({ id: g.dataset.id, y: g.getBoundingClientRect().y }));
@@ -160,10 +160,29 @@ try {
       });
     }, [from, to]);
     assert.deepEqual(await bandsOf('c0000004', '5ec00001'), ['Conductor', 'alpha', 'beta'], 'root → lead is drawn in Conductor and in each project band the lead drives');
-    assert.deepEqual(await bandsOf('c0000004', '5ec00002'), ['Conductor'], 'a lead with no project rows is linked in Conductor only');
-    assert.equal(await page.locator('.link-stub[data-from="c0000004"][data-to="5ec00002"]').count(), 0, '…and has no stub');
+    assert.deepEqual(await bandsOf('c0000004', '5ec00002'), ['Conductor', 'alpha'], 'root → lead two is drawn in Conductor and in lead two’s own alpha section');
+    assert.equal(await page.locator('.link-stub[data-from="c0000004"][data-to="5ec00002"]').count(), 0, '…and is not stubbed');
+    const sectionTree = new Set(['c0000004', '5ec00001', '5ec00002', 'e0000001', 'e0000002', 'e0000003', 'e0000004', 'e0000005', 'e0000006', 'e0000007']);
+    assert.deepEqual(groups.alpha.filter((id) => sectionTree.has(id)),
+      ['c0000004', 'e0000003', 'e0000007', 'c0000004', '5ec00001', 'e0000001', 'e0000004', 'c0000004', '5ec00002', 'e0000005', 'e0000006'],
+      'alpha: the conductor’s own section first, then one section per lead, each under its own conductor copy');
+    const spans = await page.evaluate(() => {
+      const bands = [...document.querySelectorAll('.project-label')].map((n) => ({ name: n.textContent, y: n.getBoundingClientRect().y }));
+      return [...document.querySelectorAll('.link-g[data-type="send_prompt"][data-from="c0000004"]:not(.link-stub)')]
+        .filter((g) => ['5ec00001', '5ec00002'].includes(g.dataset.to)).map((g) => {
+          const l = g.querySelector('.link');
+          const y = g.querySelector('.link-end').getBoundingClientRect().y;
+          return { band: bands.filter((b) => b.y < y).at(-1)?.name, span: Math.abs(l.getAttribute('y2') - l.getAttribute('y1')) };
+        });
+    });
+    const sectionLines = spans.filter((x) => x.band !== 'Conductor');
+    assert.ok(sectionLines.length >= 3 && sectionLines.every((x) => x.span === 26), 'each root → lead line outside Conductor stays in its own section (one row)');
+    const lineCount = (type, f, t) => page.locator(`.link-g[data-type="${type}"][data-from="${f}"][data-to="${t}"]:not(.link-stub)`).count();
+    const stubCount = (type, f, t) => page.locator(`.link-g.link-stub[data-type="${type}"][data-from="${f}"][data-to="${t}"]`).count();
+    assert.deepEqual([await lineCount('send_prompt', '5ec00002', 'e0000005'), await stubCount('send_prompt', '5ec00002', 'e0000005')], [1, 0], 'lead two → its worker is one line');
+    assert.deepEqual([await lineCount('wake', 'e0000006', '5ec00002'), await stubCount('wake', 'e0000006', '5ec00002')], [1, 0], 'worker → lead two (wake) is one line');
     const stubSel = '.link-g.link-stub[data-type="forward"][data-from="e0000003"][data-to="5ec00002"]';
-    assert.equal(await page.locator(stubSel).count(), 2, 'a forward whose ends share no group is two stubs');
+    assert.equal(await page.locator(stubSel).count(), 2, 'a forward from the conductor’s own worker to a lead crosses sections: two stubs, even though the lead has a section in the same band');
     assert.equal(await page.locator('.link-g[data-type="forward"][data-from="e0000003"]:not(.link-stub)').count(), 0, '…and no line');
     await page.screenshot({ path: path.join(shots, '14-section-leads.png'), fullPage: true });
     const ring = page.locator(`${stubSel}:not(:has(.link-end)) .link-hit`);

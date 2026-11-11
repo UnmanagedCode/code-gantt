@@ -38,10 +38,11 @@
 - Childless roots are excluded. `buildForest` gives each row a `role`: root → `conductor`; depth 1 with `project === CONDUCTOR_PROJECT` → `lead`; else `worker`. The walk and cycle detection are iterative and O(n), so a very deep chain cannot overflow the stack.
 - Grouping is client-side, in `groupRows` (`public/lib/grouping.js`), per tree:
   - *Entries:* for each owner (the root, or a lead) and each project in its workers' projects, a unit of those workers plus their ancestors below the owner; plus a self-entry per lead in its own project.
-  - *Path:* an entry's path is `[project, ...owner chain]` (`LEVELS`); entries merge into a trie, emitted depth-first as bands, headers and rows.
+  - *Path:* an entry's path is `[project, ...owner chain]` (`LEVELS`); entries merge into a trie. `emitNested` emits the Conductor band (conductor → leads, children and units interleaved by tree order); `emitSections` emits a project band (per tree: the root's own section, then one section per lead, each with its own root copy).
   - *Filters* apply to entries before the trie: Conductors drops trees; Projects drops units and self-entries of unselected projects; the time range keeps rows that overlap or are ancestors of kept rows. A node exists only if a surviving entry passes through it.
+  - *Row `section`:* the id of the section's owner on every row, headers included: the root for the conductor's own section and for the whole tree in the Conductor band, the lead for a lead section. Row keys are `r:<group>/<section>/<id>`.
   - *Row `context`:* a header is own (not context) only when its `project` is the band's and it is not the root.
-- A root ↔ own-section-lead link (`rootLead` in `applyFilters`) gets one extra line per other shared band, keyed `l:<i>:<group>`; the best-band line keeps `l:<i>`.
+- Links are placed per section (`sectionOf` = `<group>/<section>` in `applyFilters`). A root ↔ own-section-lead link (`rootLead`) gets one extra line per other shared section, keyed `l:<i>:<group>/<section>`; the best-section line keeps `l:<i>`.
 - Links and stubs are placed in `applyFilters` (`public/lib/layout.js`); `layout.stubs` carries `{...link, end, y, dir, otherId, otherGroup}` per stub end.
 
 ### Bar end precedence

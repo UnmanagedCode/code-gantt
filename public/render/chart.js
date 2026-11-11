@@ -164,7 +164,7 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
     if (l.type === 'forward') linkLayer.prepend(lg);
     else linkLayer.appendChild(lg);
   }
-  // A link whose ends share no group: a short stub at each end, ending in a ring, instead of a line across groups.
+  // A link whose ends share no section: a short stub at each end, ending in a ring, instead of a line across sections.
   for (const st of layout.stubs) {
     const x = X(st.ts) + (st.type === 'forward' ? PAIR_OFFSET_PX : 0);
     const tip = st.y + st.dir * STUB_PX;
