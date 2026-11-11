@@ -106,9 +106,6 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
     plot.appendChild(svgEl('line', { class: 'grid', x1: x, x2: x, y1: 0, y2: layout.height }));
     axis.appendChild(svgEl('text', { x, y: AXIS_H - 9, 'text-anchor': 'middle' }, text(t.label)));
   }
-  if (payload.now >= scale.from && payload.now <= scale.to) {
-    plot.appendChild(svgEl('line', { class: 'now', x1: X(payload.now), x2: X(payload.now), y1: 0, y2: layout.height }));
-  }
 
   // bars
   for (const r of layout.rows) {
@@ -146,6 +143,12 @@ function renderFrame({ scaleBox, scroller, overlay, crosshair }, { payload, layo
     listen(g, 'mousemove', (e) => onHover(barLines(s), ...at(e)));
     listen(g, 'mouseleave', () => onLeave());
     plot.appendChild(g);
+  }
+
+  // "now" is the window's right edge (payload.now is a few ms later); painted above bars, whose live ends sit on it
+  if (scale.to >= payload.window.to) {
+    const x = X(payload.window.to);
+    plot.appendChild(svgEl('line', { class: 'now', x1: x, x2: x, y1: 0, y2: layout.height }));
   }
 
   // links: a vertical connector at the event time, with an end dot on the target row.
