@@ -1393,6 +1393,7 @@ test('zooming out with the cursor at the right edge of a frozen view keeps it fr
   const PLOT_W = plotWOf(host);
   const zoom = (x, deltaY) => wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + x, { deltaY });
   zoom(PLOT_W / 2, -100);
+  zoom(PLOT_W / 2, -100); // narrow enough that zooming back out stays short of the full window
   const frozen = { ...app.state.view };
   assert.equal(frozen.live, false);
   zoom(PLOT_W, 100);
