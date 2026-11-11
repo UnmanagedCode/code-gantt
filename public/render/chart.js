@@ -9,7 +9,7 @@ import { createCrosshair } from './crosshair.js';
 
 export const LABEL_W = 250;
 export const AXIS_H = 30;
-const PAD_R = 14;
+export const PAD_R = 14;
 const STAGE_COLORS = 8;
 const APPROX_TAIL_PX = 26;
 /** A forward line is drawn this many pixels right of its send_prompt partner (about one `.link` stroke width); pixels, so zoom does not change it. */

@@ -53,8 +53,8 @@ export function brushSpan(scale, x0, x1) {
 /** The view for a brush from pixel `x0` to `x1`, or null when it is a click / jitter. */
 export function brushView(scale, x0, x1, bounds) {
   const { lo, hi: rawHi } = brushSpan(scale, x0, x1);
+  if (rawHi - lo < BRUSH_MIN_PX) return null;
   const hi = rawHi >= scale.width - LIVE_EDGE_PX ? scale.width : rawHi;
-  if (hi - lo < BRUSH_MIN_PX) return null;
   const tLo = Math.max(bounds.from, scale.invert(lo));
   const tHi = Math.min(bounds.to, scale.invert(hi));
   const span = Math.min(bounds.to - bounds.from, Math.max(MIN_SPAN_MS, tHi - tLo));

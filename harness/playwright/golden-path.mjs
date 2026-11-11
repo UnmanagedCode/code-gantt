@@ -268,16 +268,21 @@ try {
       };
       await brushTo(10);
       // brush in until the span is minutes, so the readout resolves seconds
-      for (let i = 0; i < 10; i++) {
+      const SECONDS = /\d\d:\d\d:\d\d$/;
+      for (let i = 0; i < 30 && !SECONDS.test((await edgeReadouts())[1]); i++) {
         await brushTo(500);
         await page.waitForSelector('.brush-band', { state: 'detached' });
-        if (/\d\d:\d\d:\d\d$/.test((await edgeReadouts())[1])) break;
       }
+      assert.match((await edgeReadouts())[1], SECONDS, 'the brushes reached seconds resolution');
+      // seconds of the day of a readout "MM-DD HH:MM:SS"
+      const secOf = (r) => { const [h, m, s] = r.slice(-8).split(':').map(Number); return h * 3600 + m * 60 + s; };
       const live0 = await edgeReadouts();
+      await page.waitForTimeout(2500); // so the update moves "now" by well over a second
       await reload(1);
       const live1 = await edgeReadouts();
-      assert.equal(live1[0], live0[0], 'live view keeps its left edge');
-      assert.notEqual(live1[1], live0[1], 'live view right edge advances');
+      // the left readout is 2px inside the edge, so the growing span moves it by milliseconds: compare to ±1 s
+      assert.ok(Math.abs(secOf(live1[0]) - secOf(live0[0])) <= 1, `live view keeps its left edge (${live0[0]} → ${live1[0]})`);
+      assert.ok(secOf(live1[1]) - secOf(live0[1]) >= 1, `live view right edge advances (${live0[1]} → ${live1[1]})`);
       await page.screenshot({ path: path.join(shots, '06d-live-edge-grown.png'), fullPage: true });
 
       const svgBox2 = await page.locator('svg.chart').boundingBox();

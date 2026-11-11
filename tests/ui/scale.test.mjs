@@ -183,3 +183,9 @@ test('followNow keeps the left edge and moves the right edge; a left edge at or 
   assert.equal(followNow({ from: 0, to: 1_000_000 }, w), null);
   assert.equal(followNow({ from: 100, to: 1_000_000 }, { from: 500, to: 2_000_000 }), null);
 });
+
+test('a sub-BRUSH_MIN_PX drag ending near the right edge is still a click, not a zoom', () => {
+  const s = timeScale(200_000, 600_000, 800);
+  assert.equal(brushView(s, 800 - LIVE_EDGE_PX - 1, 800 - 3, bounds), null);
+  assert.equal(brushView(s, 800 - 2, 800, bounds), null);
+});

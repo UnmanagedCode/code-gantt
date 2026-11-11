@@ -10,7 +10,7 @@ globalThis.window = win;
 
 const { el, svgEl } = await import('../../public/lib/dom.js');
 const { mount } = await import('../../public/app.js');
-const { LABEL_W, PAIR_OFFSET_PX } = await import('../../public/render/chart.js');
+const { LABEL_W, PAIR_OFFSET_PX, PAD_R } = await import('../../public/render/chart.js');
 const { brushView, timeScale, readout } = await import('../../public/lib/scale.js');
 
 const EVIL = '<img src=x onerror=alert(1)>';
@@ -1275,11 +1275,13 @@ function bootLive(to) {
   const app = mount(host, { getJson: async () => current, subscribe: null });
   return { host, app, reload: async (t) => { current = payloadAt(t); await app.load(); } };
 }
-const PLOT_W = 836;
+// the plot width the chart drew: the axis hit rect spans the plot plus its right padding
+const plotWOf = (host) => Number(hitOf(host).getAttribute('width')) - PAD_R;
 
 test('a brush up to the right edge is live: a reload grows it to the new right edge and keeps its left edge', async () => {
   const { host, app, reload } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   drag(host, 100, PLOT_W + 10);
   ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
   const before = app.state.view;
@@ -1294,6 +1296,7 @@ test('a brush up to the right edge is live: a reload grows it to the new right e
 test('a brush ending in the past stays frozen across a reload', async () => {
   const { host, app, reload } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   drag(host, 100, 300);
   ptr(hitOf(host), 'pointerup', LABEL_W + 300);
   const before = { ...app.state.view };
@@ -1305,6 +1308,7 @@ test('a brush ending in the past stays frozen across a reload', async () => {
 test('wheel zoom: at the right edge stays live, left of it freezes, zooming out to the edge is live again', async () => {
   const { host, app } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   const zoom = (x, deltaY) => wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + x, { deltaY });
   zoom(PLOT_W, -100);
   assert.equal(app.state.view.live, true);
@@ -1319,6 +1323,7 @@ test('wheel zoom: at the right edge stays live, left of it freezes, zooming out 
 test('panning a live view into the past freezes it; panning back to the right edge makes it live', async () => {
   const { host, app } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + PLOT_W, { deltaY: -100 });
   assert.equal(app.state.view.live, true);
   const mouse = (node, type, x) => node.dispatchEvent(new win.MouseEvent(type, { bubbles: true, clientX: x }));
@@ -1334,6 +1339,7 @@ test('panning a live view into the past freezes it; panning back to the right ed
 test('Reset zoom and a Range change give the default view, which still tracks the window across reloads', async () => {
   const { host, app, reload } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   drag(host, 100, PLOT_W + 10);
   ptr(hitOf(host), 'pointerup', LABEL_W + PLOT_W + 10);
   click(host.querySelector('button[name="reset-zoom"]'));
@@ -1354,6 +1360,7 @@ test('Reset zoom and a Range change give the default view, which still tracks th
 test('a reload during a brush to the right edge commits a live view ending at the new right edge', async () => {
   const { host, app, reload } = bootLive(10_000);
   await app.load();
+  const PLOT_W = plotWOf(host);
   drag(host, 100, PLOT_W + 10);
   await reload(20_000);
   assert.equal(app.state.view, null);
@@ -1371,10 +1378,57 @@ test('a live view whose left edge the window slides past becomes the default vie
   document.body.appendChild(h);
   const app = mount(h, { getJson: async () => current, subscribe: null });
   await app.load();
+  const PLOT_W = plotWOf(h);
   drag(h, 100, PLOT_W + 10);
   ptr(hitOf(h), 'pointerup', LABEL_W + PLOT_W + 10);
   assert.equal(app.state.view.live, true);
   current = payload({ now: 20_000, window: { from: 5000, to: 20_000 } });
   await app.load();
   assert.equal(app.state.view, null);
+});
+
+test('zooming out with the cursor at the right edge of a frozen view keeps it frozen, with its right edge in place', async () => {
+  const { host, app } = bootLive(10_000);
+  await app.load();
+  const PLOT_W = plotWOf(host);
+  const zoom = (x, deltaY) => wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + x, { deltaY });
+  zoom(PLOT_W / 2, -100);
+  const frozen = { ...app.state.view };
+  assert.equal(frozen.live, false);
+  zoom(PLOT_W, 100);
+  assert.equal(app.state.view.live, false);
+  assert.ok(Math.abs(app.state.view.to - frozen.to) < 1e-6);
+  assert.ok(app.state.view.from < frozen.from);
+});
+
+test('a live view made by the wheel follows a reload: its left edge stays and its right edge moves to the new now', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + plotWOf(host), { deltaY: -100 });
+  const before = { ...app.state.view };
+  assert.equal(before.live, true);
+  await reload(20_000);
+  assert.deepEqual(app.state.view, { from: before.from, to: 20_000, live: true });
+});
+
+test('a reload mid-pan keeps the drag going on the new render, bounded by the new window', async () => {
+  const { host, app, reload } = bootLive(10_000);
+  await app.load();
+  const PLOT_W = plotWOf(host);
+  wheelAt(sq(host, 'svg.chart-scale'), LABEL_W + PLOT_W, { deltaY: -100 });
+  const mouse = (node, type, x) => node.dispatchEvent(new win.MouseEvent(type, { bubbles: true, clientX: x }));
+  mouse(sq(host, 'rect.plot-bg'), 'mousedown', 500);
+  mouse(sq(host, 'svg.chart'), 'mousemove', 520);
+  const first = { ...app.state.view };
+  assert.equal(first.live, false);
+  await reload(20_000);
+  assert.deepEqual(app.state.view, first, 'a frozen view is not moved by the reload');
+  mouse(sq(host, 'svg.chart'), 'mousemove', 540);
+  const span = first.to - first.from;
+  assert.ok(Math.abs(app.state.view.from - (first.from - (20 / PLOT_W) * span)) < 1e-6, 'the drag continues from the last pointer position');
+  assert.equal(app.state.view.live, false);
+  mouse(sq(host, 'svg.chart'), 'mousemove', -1e6);
+  assert.equal(app.state.view.live, true);
+  assert.equal(app.state.view.to, 20_000);
+  mouse(sq(host, 'svg.chart'), 'mouseup', 0);
 });
