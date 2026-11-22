@@ -39,8 +39,9 @@ test('public/ scripts use no root-relative URL literals', () => {
   assert.deepEqual(files.filter((f) => re.test(fs.readFileSync(f, 'utf8'))).map(rel), []);
 });
 
-test('index.html has exactly the two allowed root-relative URLs', () => {
+test('index.html has no root-absolute URLs and loads the two host files relative to its depth', () => {
   const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-  const urls = [...html.matchAll(/(?:src|href)="(\/[^"]*)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(urls, ['/pluginBridge.js', '/pluginTheme.css']);
+  const urls = [...html.matchAll(/(?:src|href)="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(urls.filter((u) => u.startsWith('/')), []);
+  assert.deepEqual(urls.filter((u) => /pluginBridge\.js|pluginTheme\.css/.test(u)), ['../../pluginBridge.js', '../../pluginTheme.css']);
 });
