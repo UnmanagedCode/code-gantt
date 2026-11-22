@@ -1,4 +1,4 @@
-/* Fallback tokens for standalone use. /pluginTheme.css (host palette, unlayered) wins over this layer. */
+/* Fallback tokens for standalone use. pluginTheme.css (host palette, unlayered) wins over this layer. */
 @layer fallback {
   :root {
     --background: oklch(0.99 0.002 60); --foreground: oklch(0.2 0.01 50); --card: oklch(1 0 0);

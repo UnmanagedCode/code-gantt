@@ -113,7 +113,7 @@ Every 5 s `Live.poll` stats `sessions.json` and `events.jsonl`; a change re-read
 
 - All DOM goes through `public/lib/dom.js` (`createElement(NS)` + `setAttribute` + text nodes); it refuses `on*`, `style`, `href`, `src*` attributes and script-like tags. No HTML-string APIs exist in `public/`.
 - CSP blocks inline style, so geometry uses SVG attributes and the tooltip is an SVG `<g>` positioned by `transform`.
-- URLs are relative; `lib/api.js` throws on a leading `/`. `index.html` loads only `/pluginBridge.js` and `/pluginTheme.css` root-relative (host-served; they 404 standalone).
+- URLs are relative; `lib/api.js` throws on a leading `/`. `index.html` loads only `../../pluginBridge.js` and `../../pluginTheme.css` (host-served; they 404 standalone). The page is served at exactly one depth (`/` standalone, `/plugins/<id>/` in cc, under any URL prefix), so `../../` resolves to the host root in both cases. Do not add a second depth: that would need a different approach.
 
 ## Tests
 
